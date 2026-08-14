@@ -10,6 +10,7 @@ rnmmp = { workspace = true }
 rnmmp-client = { workspace = true }
 lxmbox-mailboxd = { workspace = true }
 lxmbox-cli = { workspace = true }
+lxmbox-qt = { workspace = true }
 lxmbox-nomad = { workspace = true }
 lxmbox-web = { workspace = true }
 
@@ -53,6 +54,7 @@ known-first-party = [
     "rnmmp_client",
     "lxmbox_mailboxd",
     "lxmbox_cli",
+    "lxmbox_qt",
     "lxmbox_nomad",
     "lxmbox_web",
 ]
@@ -71,6 +73,7 @@ mypy_path = [
     "packages/rnmmp-client/src",
     "packages/lxmbox-mailboxd/src",
     "packages/lxmbox-cli/src",
+    "packages/lxmbox-qt/src",
     "packages/lxmbox-nomad/src",
     "packages/lxmbox-web/src",
 ]

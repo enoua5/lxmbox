@@ -49,6 +49,7 @@ package under `packages/`:
 | [`rnmmp-client`](packages/rnmmp-client) | The rnmmp client library for building client implementations. |
 | [`lxmbox-mailboxd`](packages/lxmbox-mailboxd) | The mail daemon, hosting multiple mailbox identities. Accepts LXMF deliveries and serves rnmmp per mailbox, plus an `lxmbox.control` API for non-rnmmp functionality. |
 | [`lxmbox-cli`](packages/lxmbox-cli) | The `lxmbox` CLI: a simple rnmmp + lxmbox client with a local cache. |
+| [`lxmbox-qt`](packages/lxmbox-qt) | Native desktop client, built with Qt (PySide6) |
 | [`lxmbox-nomad`](packages/lxmbox-nomad) | NomadNetwork frontend. |
 | [`lxmbox-web`](packages/lxmbox-web) | Django PWA frontend (used outside of Reticulum for convenience). |
 
