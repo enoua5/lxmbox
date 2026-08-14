@@ -33,7 +33,7 @@ layer inside shared infrastructure.
 ## Profiles are a convenience, not a boundary
 
 lxmbox replaces the traditional notion of "users" with **profiles**.
-A profile can its own default mailbox, its own contacts, etc.
+A profile can have its own default mailbox, its own contacts, etc.
 Profiles make a shared high-trust (e.g. household) instance pleasant —
 different people (or different devices) may get their own view.
 
