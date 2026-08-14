@@ -7,7 +7,7 @@ requires-python = ">=3.13"
 license = "MIT"
 authors = [{ name = "Enoua5" }]
 dependencies = [
-    "lxmbox-mgmt",
+    "lxmbox-cli",
     "nomadnet>=1.2.0",
 ]
 

@@ -1,13 +1,13 @@
 [project]
 name = "lxmbox-mailboxd"
 version = "0.0.0"
-description = "lxmbox's POPR mailbox host"
+description = "The lxmbox mail daemon: rnmmp servers, LXMF destination, and the lxmbox.control API."
 readme = "README.md"
 requires-python = ">=3.13"
 license = "MIT"
 authors = [{ name = "Enoua5" }]
 dependencies = [
-    "lxmbox-popr",
+    "rnmmp",
     "sqlalchemy>=2.0",
     "alembic>=1.13",
 ]

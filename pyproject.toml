@@ -6,9 +6,10 @@ members = ["packages/*"]
 
 # Workspace-internal dependencies resolve to the local packages rather than PyPI.
 [tool.uv.sources]
-lxmbox-popr = { workspace = true }
+rnmmp = { workspace = true }
+rnmmp-client = { workspace = true }
 lxmbox-mailboxd = { workspace = true }
-lxmbox-mgmt = { workspace = true }
+lxmbox-cli = { workspace = true }
 lxmbox-nomad = { workspace = true }
 lxmbox-web = { workspace = true }
 
@@ -48,9 +49,10 @@ select = [
 
 [tool.ruff.lint.isort]
 known-first-party = [
-    "lxmbox_popr",
+    "rnmmp",
+    "rnmmp_client",
     "lxmbox_mailboxd",
-    "lxmbox_mgmt",
+    "lxmbox_cli",
     "lxmbox_nomad",
     "lxmbox_web",
 ]
@@ -65,9 +67,10 @@ addopts = "-ra --import-mode=importlib"
 python_version = "3.13"
 strict = true
 mypy_path = [
-    "packages/lxmbox-popr/src",
+    "packages/rnmmp/src",
+    "packages/rnmmp-client/src",
     "packages/lxmbox-mailboxd/src",
-    "packages/lxmbox-mgmt/src",
+    "packages/lxmbox-cli/src",
     "packages/lxmbox-nomad/src",
     "packages/lxmbox-web/src",
 ]
