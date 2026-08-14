@@ -1,0 +1,19 @@
+[project]
+name = "lxmbox-popr"
+version = "0.0.0"
+description = "A Python implementation of the POPR mailbox protocol over Reticulum."
+readme = "README.md"
+requires-python = ">=3.13"
+license = "MIT"
+authors = [{ name = "Enoua5" }]
+dependencies = [
+    "rns>=1.4.2",
+    "lxmf>=1.1.0",
+]
+
+[build-system]
+requires = ["hatchling"]
+build-backend = "hatchling.build"
+
+[tool.hatch.build.targets.wheel]
+packages = ["src/lxmbox_popr"]

@@ -1,0 +1,20 @@
+[project]
+name = "lxmbox-mailboxd"
+version = "0.0.0"
+description = "lxmbox's POPR mailbox host"
+readme = "README.md"
+requires-python = ">=3.13"
+license = "MIT"
+authors = [{ name = "Enoua5" }]
+dependencies = [
+    "lxmbox-popr",
+    "sqlalchemy>=2.0",
+    "alembic>=1.13",
+]
+
+[build-system]
+requires = ["hatchling"]
+build-backend = "hatchling.build"
+
+[tool.hatch.build.targets.wheel]
+packages = ["src/lxmbox_mailboxd"]

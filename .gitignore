@@ -1,0 +1,38 @@
+# Python
+__pycache__/
+*.py[cod]
+*.egg-info/
+.eggs/
+build/
+dist/
+*.so
+
+# Environments & tooling
+.venv/
+venv/
+.uv/
+uv.lock.tmp
+uv.lock
+.mypy_cache/
+.ruff_cache/
+.pytest_cache/
+.coverage
+htmlcov/
+coverage.xml
+
+# Databases & runtime state
+*.sqlite
+*.sqlite3
+*.db
+*.db-wal
+*.db-shm
+
+# Reticulum config/identities generated during local runs and tests
+.reticulum/
+*.identity
+
+# Editors / OS
+.idea/
+.vscode/
+*.swp
+.DS_Store
