@@ -1,10 +1,9 @@
 # lxmbox-mailboxd
 
 The lxmbox mail daemon. Hosts multiple mailboxes in one process;
-each mailbox has its own identity and serves three Reticulum destination aspects:
+each mailbox has its own identity and serves multiple Reticulum destination aspects:
 - `lxmf.delivery` (for incoming mail)
-- `rnmmp.manage` (the [rnmmp](../rnmmp) mailbox-management protocol)
-- `rnmmp.send` (outbound submission, repacked with the mailbox as the sender)
+- `rnmmp.request` (the [rnmmp](../rnmmp) mailbox-management protocol)
 
 The daemon also serves a single `lxmbox.control` aspect for non-rnmmp controls:
 creating mailboxes, managing authorized identities and profiles, contacts, etc.

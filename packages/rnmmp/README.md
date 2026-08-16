@@ -7,6 +7,7 @@ mailbox-management protocol. This package holds server implementation of the pro
 link identity verification for authentication, minimized request and response sizes,
 and LXMF-specific features.
 
+The protocol is specified in [the rnmmp spec](../../docs/spec/rnmmp.md).
 The client half lives in the separate [`rnmmp-client`](../rnmmp-client) package.
 
 Scaffold only; see the workspace root `README.md` for status.
