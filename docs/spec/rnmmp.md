@@ -118,7 +118,7 @@ The map MAY include implementation-defined key-value pairs indicating informatio
 Integer keys from 0-127 are reserved and MUST NOT be used except as defined in this spec.
 Definitions for these keys are planned to be added in a later draft of the spec.
 
-When using the Link connection type,
+When using the Single connection mode,
 Responses MUST be sent to the destination listed as the Source in the LXMF packet,
 and MUST use the LXMF `FIELD_REPLY_TO` to indicate the message-id of the request.
 
@@ -136,7 +136,7 @@ The method of authentication differs between connection modes.
 
 A receiver MUST ignore any Exchanges received with missing or invalid authentication.
 
-Clients and servers SHOULD define a list of identities they expect to receive messages 
+Clients and servers SHOULD define a list of identities they expect to receive Exchanges from and ignore Exchanges received from unexpected senders.
 
 #### Link mode
 
