@@ -93,11 +93,11 @@ The receiver MUST accept requests with duplicate IDs.
 When using the Single mode, responses can be matched to requests without needing the Request ID; the Request ID SHOULD be set to `0` in this case.
 
 The second Parameter is the request type, indicating an action the sender wants the receiver to complete.
-See sections "Request types" for more information.
+See section "Request types" for more information.
 
-Additional may be required as defined by the request type.
+Additional parameters may be required as defined by the request type.
 The first of these additional parameters, if any additional parameters are provided,
-will always be a map containing additional non-position arguments,
+will always be a map containing additional non-positional arguments,
 with meanings assigned according to request type — referred to as Keyed Parameters.
 A sender SHOULD NOT include keys in this parameter not defined in the spec.
 A receiver MUST accept and ignore keys in this parameter it does not expect.
@@ -195,25 +195,25 @@ Whenever a Collection's state is updated, the server MUST create a new State Tok
 State Tokens are to be intepreted as opaque and MUST NOT be parsed by the client; only used raw.
 
 The zero-length byte array (msgpack `0xC4 0x00`) is reserved to represent the "Initial State".
-If a client can use the Initial State Token as last known State Token to indicate that they
+A client can use the Initial State Token as its last known State Token to indicate that they
 require the full current state of the Collection, rather than the delta from some known state.
 
-Collections are representing by integers.
+Collections are represented by integers.
 The integers 0-127 inclusive are reserved for standard Collections.
 Extensions MAY use integers outside of this range for other Collections.
 
 | Collection name | Code | Description                                                  |
 |-----------------|------|--------------------------------------------------------------|
 | MAIL_LIST       | 0    | The list of messages in the mailbox                          |
-| TAG_LIST        | 1    | The list of tag names applied to each message in the mailbox |
+| TAG_LIST        | 1    | The list of tag names defined in the mailbox                 |
 | MESSAGE_TAG     | 2    | The list of tags applied to each message in the mailbox      |
 | METADATA        | 3    | The non-tag metadata for each message in the mailbox         |
 
-Note that message *content* is immutable,
+Note that message *content* is immutable.
 A client's stored mailbox state does not need to include it.
 
 The `MESSAGE_TAG` and `METADATA` Collections are keyed by ids from the `MAIL_LIST` Collection,
-and the `MESSAGE_TAG` Collection is keys by ids from the `TAG_LIST` Collection.
+and the `MESSAGE_TAG` Collection is keyed by ids from the `TAG_LIST` Collection.
 The client MUST tolerate items in these Collections referring to ids not known to exist in other Collections.
 
 ## Request types
@@ -224,7 +224,7 @@ Numbers outside of this range MAY be used for implementation-defined request typ
 The following request types MUST be supported by the server;
 the server MAY opt to return a `NO` response with `GENERAL_ERROR` = `UNSUPPORTED` for any request.
 
-| Code | Name              | Description (see subsections for specification)                                                   |
+| Code | Name              | Description (see subsections for specification)                                                    |
 |------|--------------------|---------------------------------------------------------------------------------------------------|
 | 0    | NOOP               | No action to be performed, MAY be sent periodically to keep a link alive                          |
 | 1    | CAPABILITY         | Fetch information about the server's supported features                                           |
@@ -249,7 +249,7 @@ the server MAY opt to return a `NO` response with `GENERAL_ERROR` = `UNSUPPORTED
 | 20   | ADD_TAG            | Add tags to Message Tag Collection                                                                |
 | 21   | REMOVE_TAG         | Remove tags from the Message Tag Collection                                                       |
 | 22   | SET_METADATA       | Add entries to items in the Metadata Collection                                                   |
-| 23   | REMOVE_METADATA    | Remove entires from items in the Metadata Collection                                              |
+| 23   | REMOVE_METADATA    | Remove entries from items in the Metadata Collection                                              |
 
 
 Further details in the subsections below.
@@ -305,11 +305,11 @@ Indicate that the client would like to receive active updates regarding a Collec
 | 0    | UNKNOWN_COLLECTION  | Server does not have a Collection with the requested ID                                                            |
 | 1    | UNKNOWN_DESTINATION | Server refuses to send LXMF notifications to the requested Destination because it does not recognize it as trusted |
 | 2    | NO_PASSIVE_NOTIFS   | Server refuses to send LXMF notifications, only supporting notifications over an active link                       |
-| 3    | REFUSED             | Server refuses to complete send notifications as requested for unspecified/other reasons                           |
+| 3    | REFUSED             | Server refuses to send notifications as requested for unspecified/other reasons                                    |
 
 If accepted, the server will begin to send COLLECTION_UPDATE Notifications whenever the State Token for the specified Collection changes.
 
-If Destination is specified, these notifications will be sent in Single mode as LXMF to the specified Reticulum Desination.
+If Destination is specified, these notifications will be sent in Single mode as LXMF to the specified Reticulum Destination.
 
 If Destination is not specified, notifications will be sent to the client making the request:
 - If the request was made in Single mode, notifications will be sent in Single mode as LXMF to the request's Destination.
@@ -335,9 +335,9 @@ List active subscriptions for Single Mode destinations.
 
 **Return Parameters**
 
-| Index | Name        | Type               | Optional? | Description                                                                                                                       |
-|-------|-------------|--------------------|-----------|-----------------------------------------------------------------------------------------------------------------------------------|
-| 1     | Subscribers | List[[Int, Bytes]] | No        | A list of 2-ples of [Collection ID, Reticulum Destination] pairs for currently active Single Mode COLLECTION_UPDATE Notifications |
+| Index | Name        | Type               | Optional? | Description                                                                                                                         |
+|-------|-------------|--------------------|-----------|-------------------------------------------------------------------------------------------------------------------------------------|
+| 1     | Subscribers | List[[Int, Bytes]] | No        | A list of 2-tuples of [Collection ID, Reticulum Destination] pairs for currently active Single Mode COLLECTION_UPDATE Notifications |
 
 ### SYNC
 
@@ -352,10 +352,10 @@ Get the delta for a Collection from a given State Token
 
 **Specific Error Codes**
 
-| Code | Name                | Description                                                                                                                |
-|------|---------------------|----------------------------------------------------------------------------------------------------------------------------|
-| 0    | UNKNOWN_COLLECTION  | Server does not have a Collection with the requested ID                                                                    |
-| 1    | UNKNOWN_STATE       | Server cannot generate a delta from the given state to the request state. Client SHOULD retry with the Initial State Token |
+| Code | Name                | Description                                                                                                                  |
+|------|---------------------|------------------------------------------------------------------------------------------------------------------------------|
+| 0    | UNKNOWN_COLLECTION  | Server does not have a Collection with the requested ID                                                                      |
+| 1    | UNKNOWN_STATE       | Server cannot generate a delta from the given state to the requested state. Client SHOULD retry with the Initial State Token |
 
 **Return Parameters**
 
@@ -370,12 +370,12 @@ The exact format of the Delta Return Parameter depends on the Collection type.
 The MAIL_LIST Delta has two keys, ADDED (`0`) and DELETED (`1`).
 Each key's value is a list of Message IDs,
 where ADDED is a complete list of messages that did not exist in the Last Known State but now do,
-and REMOVED is a complete list of messages that existed in the Last Known State but now do not.
+and DELETED is a complete list of messages that existed in the Last Known State but now do not.
 
 A Message ID MUST NOT appear in both the ADDED and DELETED list.
 I.E., If a message was added and then deleted since the Last Known State, it should not appear in the delta.
 
-Messages that have the same existance state as the Last Known State MUST NOT appear.
+Messages that have the same existence state as the Last Known State MUST NOT appear.
 
 #### TAG_LIST Delta
 
@@ -405,10 +405,10 @@ it MUST consider a reordering of tags as being the same set of tags and not incl
 #### METADATA Delta
 
 The METADATA Delta uses Message IDs as keys, and includes information about the message's current metadata as the value.
-For messages have have had Metadata changed, the value is the message's current metadata map.
+For messages that have had Metadata changed, the value is the message's current metadata map.
 For messages that have been deleted, the value is `nil`.
 
-Intemediary states MUST NOT be represented.
+Intermediary states MUST NOT be represented.
 I.E., if a metadata field is added and then removed, it MUST NOT be included in the Delta.
 
 If a message has the same metadata as the Last Known State, it MUST NOT appear in the Delta.
