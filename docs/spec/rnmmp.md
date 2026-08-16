@@ -93,6 +93,15 @@ The receiver MUST accept requests with duplicate IDs.
 When using the Single mode, responses can be matched to requests without needing the Request ID; the Request ID SHOULD be set to `0` in this case.
 
 The second Parameter is the request type, indicating an action the sender wants the receiver to complete.
+See sections "Request types" for more information.
+
+Additional may be required as defined by the request type.
+The first of these additional parameters, if any additional parameters are provided,
+will always be a map containing additional non-position arguments,
+with meanings assigned according to request type — referred to as Keyed Parameters.
+A sender SHOULD NOT include keys in this parameter not defined in the spec.
+A receiver MUST accept and ignore keys in this parameter it does not expect.
+Additional parameters after the Keyed Parameter map are referred to as Positional Parameters.
 
 #### Responses
 
@@ -104,19 +113,19 @@ The first parameter is the Request ID.
 This value MUST be the same as included in the request.
 
 The second parameter is the status code:
-| Status        | Code | Description                            |
-|---------------|------|----------------------------------------|
-| OK            | 0    | The action was performed               |
-| NO            | 1    | The request was understood and ignored |
-| BAD           | 2    | The request was not understood         |
+| Status        | Code | Description                                                                    |
+|---------------|------|--------------------------------------------------------------------------------|
+| OK            | 0    | The action was performed                                                       |
+| NO            | 1    | The request was understood, but was either ignored or an error was encountered |
+| BAD           | 2    | The request was not understood                                                 |
 
-For the OK status, zero or more additional Parameters are REQUIRED as defined for the Request Type.
+For the OK status, zero or more additional Return Parameters are REQUIRED as defined for the Request Type.
 
 For the NO and BAD statuses, one additional Parameter MAY be supplied.
 If supplied, the parameter MUST be a map.
 The map MAY include implementation-defined key-value pairs indicating information about why the request failed.
 Integer keys from 0-127 are reserved and MUST NOT be used except as defined in this spec.
-Definitions for these keys are planned to be added in a later draft of the spec.
+The usage of the reserved keys is outlined in the "Error information" section.
 
 When using the Single connection mode,
 Responses MUST be sent to the destination listed as the Source in the LXMF packet,
@@ -134,7 +143,7 @@ Each event type defines the format of additional Parameters expected.
 All Exchanges MUST be made with the sender authenticated.
 The method of authentication differs between connection modes.
 
-A receiver MUST ignore any Exchanges received with missing or invalid authentication.
+A receiver MUST NOT process any Exchanges received with missing or invalid authentication.
 
 Clients and servers SHOULD define a list of identities they expect to receive Exchanges from and ignore Exchanges received from unexpected senders.
 
@@ -149,3 +158,327 @@ When using this behaviour, the server MAY choose to save or discard Exchanges in
 #### Single mode
 
 For Single mode Exchanges, the sender (client or server) MUST authenticate by including the Exchange as the Content of a valid (signed) LXMF message. The receiver MUST NOT process any Exchange with an invalid signature.
+
+### Error information
+
+The following integer keys have been given specific meanings when used
+in the error information map returned in a NO/BAD Response.
+
+| Code | Name           | Value                                           | Description                                                                            |
+|------|----------------|-------------------------------------------------|----------------------------------------------------------------------------------------|
+| 0    | GENERAL_ERROR  | Int (See "General error codes" section)         | The request was rejected for a generally-applicable reason                             |
+| 1    | SPECIFIC_ERROR | Int (See specific error table per request type) | An error code returned as defined by the request type spec                             |
+| 2    | ERROR_MESSAGE  | String                                          | An implementation-defined user-facing error message                                    |
+| 3    | ERROR_DETAILS  | Map                                             | A map of error details as specified for the combination of Request Type and Error Type |
+
+#### General error codes
+
+Values for the `GENERAL_ERROR` key in error information
+
+| Code | Name               | Description                                                                                    |
+|------|--------------------|------------------------------------------------------------------------------------------------|
+| 0    | UNAUTHENTICATED    | MAY be returned to an unauthenticated client instead of silently ignoring a request            |
+| 1    | UNAUTHORIZED       | MAY be returned to a client with an unexpected identity instead of silently ignoring a request |
+| 2    | INCOMPLETE         | Request is missing required information                                                        |
+| 3    | WRONG_TYPE         | A Request included a field with an unexpected datatype                                         |
+| 4    | UNSUPPORTED        | The server understands the request, but has not implemented the functionality                  |
+| 5    | TOO_LARGE          | The server refuses to process the request because it exceeds size limits or storage space      |
+| 6    | SERVER_ERROR       | The server encountered an error while processing the request and could not continue            |
+
+## Mailbox state
+
+RNMMP supports updating a client based on changes that have occurred since the client's last known state.
+These states are organized into Collections, with each Collection being associated with a server-defined State Token.
+The State Token MUST be represented in msgpack using the Bin type family.
+
+Whenever a Collection's state is updated, the server MUST create a new State Token to represent it.
+State Tokens are to be intepreted as opaque and MUST NOT be parsed by the client; only used raw.
+
+The zero-length byte array (msgpack `0xC4 0x00`) is reserved to represent the "Initial State".
+If a client can use the Initial State Token as last known State Token to indicate that they
+require the full current state of the Collection, rather than the delta from some known state.
+
+Collections are representing by integers.
+The integers 0-127 inclusive are reserved for standard Collections.
+Extensions MAY use integers outside of this range for other Collections.
+
+| Collection name | Code | Description                                                  |
+|-----------------|------|--------------------------------------------------------------|
+| MAIL_LIST       | 0    | The list of messages in the mailbox                          |
+| TAG_LIST        | 1    | The list of tag names applied to each message in the mailbox |
+| MESSAGE_TAG     | 2    | The list of tags applied to each message in the mailbox      |
+| METADATA        | 3    | The non-tag metadata for each message in the mailbox         |
+
+Note that message *content* is immutable,
+A client's stored mailbox state does not need to include it.
+
+The `MESSAGE_TAG` and `METADATA` Collections are keyed by ids from the `MAIL_LIST` Collection,
+and the `MESSAGE_TAG` Collection is keys by ids from the `TAG_LIST` Collection.
+The client MUST tolerate items in these Collections referring to ids not known to exist in other Collections.
+
+## Request types
+
+Request types are represented by an integer code.
+The numbers from 0-127 inclusive are reserved for official request types.
+Numbers outside of this range MAY be used for implementation-defined request types.
+The following request types MUST be supported by the server;
+the server MAY opt to return a `NO` response with `GENERAL_ERROR` = `UNSUPPORTED` for any request.
+
+| Code | Name              | Description (see subsections for specification)                                                   |
+|------|--------------------|---------------------------------------------------------------------------------------------------|
+| 0    | NOOP               | No action to be performed, MAY be sent periodically to keep a link alive                          |
+| 1    | CAPABILITY         | Fetch information about the server's supported features                                           |
+| 2    | SUBSCRIBE          | Indicate that the client would like to receive active updates regarding a Collection state        |
+| 3    | UNSUBSCRIBE        | Indicate that the client would like to stop receiving active updates regarding a Collection state |
+| 4    | LIST_SUBSCRIPTIONS | List active subscriptions for Single Mode destinations                                            |
+| 5    | SYNC               | Get the delta for a Collection from a given State Token                                           |
+| 6    | FETCH_FULL         | Fetch raw stored messages                                                                         |
+| 7    | FETCH_HEAD         | Fetch the Destination, Source, and Signature fields of stored LXMF messages                       |
+| 8    | FETCH_PAYLOAD      | Fetch the Payload portion of stored LXMF messages                                                 |
+| 9    | FETCH_CONTENT      | Fetch the Content portion of stored LXMF messages                                                 |
+| 10   | FETCH_FIELDS       | Fetch the Fields portion of stored LXMF messages                                                  |
+| 11   | FETCH_TIMESTAMP    | Fetch the Timestamp portion of stored LXMF messages                                               |
+| 12   | FETCH_TITLE        | Fetch the Title portion of stored LXMF messages                                                   |
+| 13   | SEARCH_TITLE       | Search LXMF messages by the Title portion                                                         |
+| 14   | SEARCH_CONTENT     | Search LXMF messages by the Content portion                                                       |
+| 15   | UPLOAD             | Add messages to the Mail List Collection manually outside of the built-in delivery mechanism      |
+| 16   | DELETE             | Remove messages from the Mail List Collection                                                     |
+| 17   | CREATE_TAG         | Add named tags to the Tag List Collection                                                         |
+| 18   | DELETE_TAG         | Remove named tags from the Tag List Collection                                                    |
+| 19   | RENAME_TAG         | Rename tags in the Tag List Collection                                                            |
+| 20   | ADD_TAG            | Add tags to Message Tag Collection                                                                |
+| 21   | REMOVE_TAG         | Remove tags from the Message Tag Collection                                                       |
+| 22   | SET_METADATA       | Add entries to items in the Metadata Collection                                                   |
+| 23   | REMOVE_METADATA    | Remove entires from items in the Metadata Collection                                              |
+
+
+Further details in the subsections below.
+Each section might define tables for their Keyed Parameters,
+Positional Parameters, Return Parameters, and Specific Error Codes.
+Any of these tables missing from a subsection indicates that the
+corresponding information is expected to be unused/empty.
+
+### NOOP
+
+No action to be performed, MAY be sent periodically to keep a link alive.
+
+### CAPABILITY
+
+Request a list of optional features and extensions the server supports.
+
+**Return Parameters**
+
+| Index | Name            | Type                                  | Optional? | Description                               |
+|-------|-----------------|---------------------------------------|-----------|-------------------------------------------|
+| 1     | Capability List | list[int OR str OR [int OR str, map]] | No        | The optional features the server supports |
+
+#### Capability list
+
+The server MUST respond with a msgpack list of capabilities.
+Each item in the list can be an integer code, a string, or a list.
+Integers are reserved for standardized optional features.
+Strings MAY be used for implementation-defined extensions.
+A list represents a feature-variant pair.
+When a list is used, it MUST be length 2;
+the first element MUST be an integer or string as defined above;
+and the second element MUST be a map containing variant information as defined for the feature code.
+
+The first element of the feature list MUST be a protocol version,
+which will be incremented when breaking changes are made to the spec.
+Currently, the only version code supported is `1`.
+
+### SUBSCRIBE
+
+Indicate that the client would like to receive active updates regarding a Collection state.
+
+**Positional Parameters**
+
+| Index | Name        | Type  | Optional? | Description                                                  |
+|-------|-------------|-------|-----------|--------------------------------------------------------------|
+| 1     | Collection  | Int   | No        | The collection to subscribe to updates for                   |
+| 2     | Destination | Bytes | Yes       | A Reticulum Destination to send LXMF Update Notifications to |
+
+**Specific Error Codes**
+
+| Code | Name                | Description                                                                                                        |
+|------|---------------------|--------------------------------------------------------------------------------------------------------------------|
+| 0    | UNKNOWN_COLLECTION  | Server does not have a Collection with the requested ID                                                            |
+| 1    | UNKNOWN_DESTINATION | Server refuses to send LXMF notifications to the requested Destination because it does not recognize it as trusted |
+| 2    | NO_PASSIVE_NOTIFS   | Server refuses to send LXMF notifications, only supporting notifications over an active link                       |
+| 3    | REFUSED             | Server refuses to complete send notifications as requested for unspecified/other reasons                           |
+
+If accepted, the server will begin to send COLLECTION_UPDATE Notifications whenever the State Token for the specified Collection changes.
+
+If Destination is specified, these notifications will be sent in Single mode as LXMF to the specified Reticulum Desination.
+
+If Destination is not specified, notifications will be sent to the client making the request:
+- If the request was made in Single mode, notifications will be sent in Single mode as LXMF to the request's Destination.
+- If the request was made in Link mode, notifications will be sent in the active link; these updates will be automatically unsubscribed when the link closes.
+
+### UNSUBSCRIBE
+
+Indicate that the client would like to stop receiving active updates regarding a Collection state
+
+**Positional Parameters**
+
+| Index | Name        | Type  | Optional? | Description                                                  |
+|-------|-------------|-------|-----------|--------------------------------------------------------------|
+| 1     | Collection  | Int   | No        | The collection to unsubscribe from updates for               |
+| 2     | Destination | Bytes | Yes       | A Reticulum Destination where notifications were being sent  |
+
+Request to stop receiving COLLECTION_UPDATE Notifications requested via the SUBSCRIBE command.
+Positional parameters are understood the same as with the SUBSCRIBE command.
+
+### LIST_SUBSCRIPTIONS
+
+List active subscriptions for Single Mode destinations.
+
+**Return Parameters**
+
+| Index | Name        | Type               | Optional? | Description                                                                                                                       |
+|-------|-------------|--------------------|-----------|-----------------------------------------------------------------------------------------------------------------------------------|
+| 1     | Subscribers | List[[Int, Bytes]] | No        | A list of 2-ples of [Collection ID, Reticulum Destination] pairs for currently active Single Mode COLLECTION_UPDATE Notifications |
+
+### SYNC
+
+Get the delta for a Collection from a given State Token
+
+**Positional Parameters**
+
+| Index | Name             | Type  | Optional? | Description                                                                              |
+|-------|------------------|-------|-----------|------------------------------------------------------------------------------------------|
+| 1     | Collection ID    | Int   | No        | The ID of the Collection to request a Delta for                                          |
+| 2     | Last Known State | Bytes | No        | The client's last known State Token for the Collection, for a delta to be generated from |
+
+**Specific Error Codes**
+
+| Code | Name                | Description                                                                                                                |
+|------|---------------------|----------------------------------------------------------------------------------------------------------------------------|
+| 0    | UNKNOWN_COLLECTION  | Server does not have a Collection with the requested ID                                                                    |
+| 1    | UNKNOWN_STATE       | Server cannot generate a delta from the given state to the request state. Client SHOULD retry with the Initial State Token |
+
+**Return Parameters**
+
+| Index | Name  | Type | Optional? | Description                                                                                 |
+|-------|-------|------|-----------|---------------------------------------------------------------------------------------------|
+| 1     | Delta | Map  | No        | Structured details about the changes to the collection since the specified Last Known State |
+
+The exact format of the Delta Return Parameter depends on the Collection type.
+
+#### MAIL_LIST Delta
+
+The MAIL_LIST Delta has two keys, ADDED (`0`) and DELETED (`1`).
+Each key's value is a list of Message IDs,
+where ADDED is a complete list of messages that did not exist in the Last Known State but now do,
+and REMOVED is a complete list of messages that existed in the Last Known State but now do not.
+
+A Message ID MUST NOT appear in both the ADDED and DELETED list.
+I.E., If a message was added and then deleted since the Last Known State, it should not appear in the delta.
+
+Messages that have the same existance state as the Last Known State MUST NOT appear.
+
+#### TAG_LIST Delta
+
+The TAG_LIST Delta uses Tag IDs as keys, and includes information about that tag as the value.
+For tags that have been created or renamed since the Last Known State, the value is a String representing the current name.
+For tags that have been deleted since the Last Known State, the value is `nil`.
+
+Intermediary states MUST NOT be represented.
+I.E., If a tag is renamed multiple times, only the current name is shown;
+and if a tag is deleted and a new tag with the same ID is created, the Delta is shown the same as if the tag was renamed.
+
+Tags ids that have the same name as in the Last Known State MUST NOT appear.
+
+#### MESSAGE_TAG Delta
+
+The MESSAGE_TAG Delta uses Message IDs as keys, and includes information about the Message's current tags as the value.
+For messages that have had tags added or removed, the value is the list of current Tag IDs.
+For messages that have been deleted, the value is `nil`.
+
+Intermediary states MUST NOT be represented.
+I.E., if a tag is added and then removed, its addition MUST NOT be reported.
+
+If a message has the same set of tags as in the Last Known State, it MUST NOT appear in the Delta.
+The set of tags does not have an order; if the server represents tags in an order,
+it MUST consider a reordering of tags as being the same set of tags and not include it in the Delta.
+
+#### METADATA Delta
+
+The METADATA Delta uses Message IDs as keys, and includes information about the message's current metadata as the value.
+For messages have have had Metadata changed, the value is the message's current metadata map.
+For messages that have been deleted, the value is `nil`.
+
+Intemediary states MUST NOT be represented.
+I.E., if a metadata field is added and then removed, it MUST NOT be included in the Delta.
+
+If a message has the same metadata as the Last Known State, it MUST NOT appear in the Delta.
+A server MAY consider a Map as ordered or unordered when determining if an update needs to be reported.
+
+### FETCH_FULL
+
+
+### FETCH_HEAD
+
+
+### FETCH_PAYLOAD
+
+
+
+### FETCH_CONTENT
+
+
+
+### FETCH_FIELDS
+
+
+
+### FETCH_TIMESTAMP
+
+
+
+### FETCH_TITLE
+
+
+
+### SEARCH_TITLE
+
+
+
+### SEARCH_CONTENT
+
+
+
+### UPLOAD
+
+
+
+### DELETE
+
+
+
+### CREATE_TAG
+
+
+### DELETE_TAG
+
+
+### RENAME_TAG
+
+
+
+### ADD_TAG
+
+
+
+### REMOVE_TAG
+
+
+### SET_METADATA
+
+
+### REMOVE_METADATA
+
+
+## Notifications
+
+TODO
