@@ -3,7 +3,7 @@
 ## Overview
 
 The Reticulum Network Mail Management Protocol (rnmmp — stylized all lowercase because I think the run of similar letter shapes is funny; "RNMMP" is acceptable) is a protocol for managing a collection of messages (a "mailbox") on a remote server over the [Reticulum Network](https://reticulum.network/manual/index.html).
-The primary problem this protocol is designed to solve is to allow a user on the Reticulum Network to manage a singular [LXMF](https://github.com/markqvist/lxmf) delivery point that represent *them*, rather than a delivery point per device they wish to use.
+The primary problem this protocol is designed to solve is to allow a user on the Reticulum Network to manage a singular [LXMF](https://github.com/markqvist/lxmf) delivery point that represents *them*, rather than a delivery point per device they wish to use.
 
 ### Status
 
@@ -11,7 +11,7 @@ This protocol is an **early draft** and is expected to undergo heavy and breakin
 
 ### Consideration of other solutions
 
-Other solutions to problem were considered, but ultimately deemed insufficient for our needs.
+Other solutions to the problem were considered, but ultimately deemed insufficient for our needs.
 Specifically, we had considered serving [IMAP](https://www.rfc-editor.org/info/rfc9051/) over a Reticulum link, and we had considered using the [POPR](https://github.com/faragher/POPR) protocol. This section is to explain why we are using an entirely new protocol.
 
 While we concluded that these protocols do not meet the needs for our problem, they each provided insights that guided the construction of this protocol. This project would not exist without their work.
@@ -26,7 +26,7 @@ POPR opts to allow for only a single mailbox per POPR destination, to encourage 
 However, POP was largely created to *allow* for centralization of mail delivery.
 POP expects clients will be storing long-term mail on their own machines,
 and was intended to be used via a list-fetch-delete flow,
-transfering mail from the central shared server to their singular own device.
+transferring mail from the central shared server to their singular own device.
 This is essentially the *inverse* of the problem we are hoping to solve.
 
 #### Why not IMAP?
@@ -42,7 +42,7 @@ IMAP communicates using line-based text in a format not-required-to-be-but-optim
 ### Conventions
 
 - In examples, `C:` and `S:` are used to indicate exchanges sent by the client and server, respectively.
-  - `C[h]:` and `S[h]:` show the binary data exchanged in hexadecimal format.For example, `C[h]:91 0a` shows a client sending the raw bytes 0x91 and 0x0a
+  - `C[h]:` and `S[h]:` show the binary data exchanged in hexadecimal format. For example, `C[h]:91 0a` shows a client sending the raw bytes 0x91 and 0x0a
   - `C[m]:` and `S[m]:` show the data exchanged in msgpack format after conversion to JSON. For example, `S[m]:[10]` shows a server sending an array containing a 10 in msgpack format, which corresponds to the raw bytes 0x91 and 0x0a
 - "User" is used to refer to a human user, whereas "client" is used to refer to software run by the user.
 - The key words "MUST", "MUST NOT", "REQUIRED", "SHALL", "SHALL NOT", "SHOULD", "SHOULD NOT", "RECOMMENDED", "NOT RECOMMENDED", "MAY", and "OPTIONAL" when appearing in all caps hold their meanings as assigned in [BCP 14](https://www.rfc-editor.org/info/rfc2119)
@@ -57,11 +57,11 @@ The "Link" mode uses a raw Reticulum [Link Destination](https://reticulum.networ
 
 The "Single" mode uses the Content part of an LXMF message to carry Exchanges asynchronously.
 
-The Link and Single modes differ in how data is transfered and in how the client is authenticated, but otherwise operate identically. The "Exchange" and "Authentication" sections for more information.
+The Link and Single modes differ in how data is transferred and in how the client is authenticated, but otherwise operate identically. See the "Exchange" and "Authentication" sections for more information.
 
 ### Exchange
 
-An Exchange is some unit of information transfered between the client and the server.
+An Exchange is some unit of information transferred between the client and the server.
 This can include Requests, Responses, and Notifications.
 
 All exchanges are formatted as a [msgpack](https://msgpack.org/) array, with the first argument being an integer acting as the exchange type:
@@ -92,7 +92,7 @@ The receiver MUST accept requests with duplicate IDs.
 
 When using the Single mode, responses can be matched to requests without needing the Request ID; the Request ID SHOULD be set to `0` in this case.
 
-The second Parameter is the request type, indicating an action the sender wants to sender to complete.
+The second Parameter is the request type, indicating an action the sender wants the receiver to complete.
 
 #### Responses
 
@@ -134,9 +134,9 @@ Each event type defines the format of additional Parameters expected.
 All Exchanges MUST be made with the sender authenticated.
 The method of authentication differs between connection modes.
 
-A reciever MUST ignore the any Exchanges received with missing or invalid authentication.
+A receiver MUST ignore any Exchanges received with missing or invalid authentication.
 
-Clients and servers SHOULD define a list of identities they expect to recieve messages 
+Clients and servers SHOULD define a list of identities they expect to receive messages 
 
 #### Link mode
 
