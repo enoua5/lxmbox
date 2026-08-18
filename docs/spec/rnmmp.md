@@ -184,6 +184,7 @@ Values for the `GENERAL_ERROR` key in error information
 | 4    | UNSUPPORTED        | The server understands the request, but has not implemented the functionality                  |
 | 5    | TOO_LARGE          | The server refuses to process the request because it exceeds size limits or storage space      |
 | 6    | SERVER_ERROR       | The server encountered an error while processing the request and could not continue            |
+| 7    | STATE_MISMATCH     | The client expected the mailbox to be in a state it was not found to be in                     |
 
 ## Mailbox state
 
@@ -215,6 +216,52 @@ A client's stored mailbox state does not need to include it.
 The `MESSAGE_TAG` and `METADATA` Collections are keyed by ids from the `MAIL_LIST` Collection,
 and the `MESSAGE_TAG` Collection is keyed by ids from the `TAG_LIST` Collection.
 The client MUST tolerate items in these Collections referring to ids not known to exist in other Collections.
+
+### Requests that mutate state
+
+All requests that mutate state (UPLOAD, DELETE, CREATE_TAG, etc) modify the mailbox.
+They share the behaviour described here, in addition to behaviour described in the "Request types" section.
+
+Some write requests involve more than one state change.
+A write request MUST be applied atomically: either every change it requested is applied, or none are.
+If the server returns a `NO` or `BAD` response, the client MUST be able to assume nothing was changed.
+
+**Keyed Parameters**
+
+| Key | Name        | Type             | Optional? | Description                                                                                   |
+|-----|-------------|------------------|-----------|-----------------------------------------------------------------------------------------------|
+| 0   | IF_IN_STATE | Map[Int → Bytes] | Yes       | A map of Collection ID to the State Token the client believes that Collection is currently in |
+
+A client MAY specify `IF_IN_STATE` to prevent unexpected results when multiple clients are connected simultaneously.
+If `IF_IN_STATE` is present, the server MUST compare each supplied State Token against the current State Token of the corresponding Collection *before* applying any change.
+If any supplied token does not match, the server MUST reject the request, apply no changes, and SHOULD return the General Error `STATE_MISMATCH`.
+
+When returning `STATE_MISMATCH`, the server SHOULD include an `ERROR_DETAILS` map with key `0` holding a map representing the updated Collections.
+The updated Collection map should use Collection IDs as keys and those Collections' current State Tokens as values.
+
+**Return Parameters**
+
+| Index | Name           | Type                      | Optional? | Description                                                                            |
+|-------|----------------|---------------------------|-----------|----------------------------------------------------------------------------------------|
+| 1     | Updated States | Map[Int → [Bytes, Bytes]] | No        | A map of Collection ID to State Token updates, for each Collection the request changed |
+
+On an `OK` response, a write request returns the updated State Token information of every Collection that had a state change.
+A Collection whose state did not change MUST NOT appear.
+A request that changed nothing (for example, deleting ids that were already absent) MUST return an empty map.
+
+The values in the Updated States map are 2-tuples holding the previous State Token and new State Token.
+If the first value in the tuple matches the client's last known state,
+the client SHOULD update their last known state to the second value in the tuple.
+If the first value in the tuple *does not* match the client's last known state,
+the client MUST NOT update their last known state, and SHOULD mark their state as stale and requiring a sync.
+
+### MAIL_LIST
+
+### TAG_LIST
+
+### MESSAGE_TAG
+
+### METADATA
 
 ## Request types
 
@@ -250,6 +297,8 @@ the server MAY opt to return a `NO` response with `GENERAL_ERROR` = `UNSUPPORTED
 | 21   | REMOVE_TAG         | Remove tags from the Message Tag Collection                                                       |
 | 22   | SET_METADATA       | Add entries to items in the Metadata Collection                                                   |
 | 23   | REMOVE_METADATA    | Remove entries from items in the Metadata Collection                                              |
+| 24   | SEND_RAW           | Send a raw message from the server to another destination                                         |
+| 25   | SEND_LXMF          | Send an LXMF message from the server to another destination                                       |
 
 
 Further details in the subsections below.
@@ -416,69 +465,310 @@ A server MAY consider a Map as ordered or unordered when determining if an updat
 
 ### FETCH_FULL
 
+Fetch raw stored messages including all LXMF headers.
+
+**Positional Parameters**
+
+| Index | Name        | Type        | Optional? | Description                      |
+|-------|-------------|-------------|-----------|----------------------------------|
+| 1     | Message IDs | List[Bytes] | No        | The ids of the messages to fetch |
+
+**Return Parameters**
+
+| Index | Name     | Type               | Optional? | Description                                                                                           |
+|-------|----------|--------------------|-----------|-------------------------------------------------------------------------------------------------------|
+| 1     | Messages | List[Bytes OR nil] | No        | The messages, returned in the same order requested. For messages that aren't found, `nil` is returned |
+
+The Messages Return Parameter is a list of message raw message data returned byte-for-byte as delivered.
+The server MUST return `nil` for any requested id that does not exist in the MAIL_LIST Collection.
+
+Fetch responses can be large.
+A server MAY refuse a request that selects too many messages, or whose response would be too large,
+with a `NO` response and `GENERAL_ERROR` = `TOO_LARGE`; a client SHOULD then retry with fewer ids.
+The server SHOULD utilize Reticulum Resources for large responses.
 
 ### FETCH_HEAD
 
+Fetch the Destination, Source, and Signature fields of stored LXMF messages.
+
+**Positional Parameters**
+
+| Index | Name        | Type        | Optional? | Description                      |
+|-------|-------------|-------------|-----------|----------------------------------|
+| 1     | Message IDs | List[Bytes] | No        | The ids of the messages to fetch |
+
+**Return Parameters**
+
+| Index | Name     | Type               | Optional? | Description                                                                                                   |
+|-------|----------|--------------------|-----------|---------------------------------------------------------------------------------------------------------------|
+| 1     | Messages | List[Bytes OR nil] | No        | The message headers, returned in the same order requested. For messages that aren't found, `nil` is returned. |
+
+The Messages Return Parameter is a list of each message's header as a Bytes value:
+
+| Index | Name        | Type  | Description                                  |
+|-------|-------------|-------|----------------------------------------------|
+| 1     | Destination | Bytes | The destination hash the message was sent to |
+| 2     | Source      | Bytes | The source hash the message was sent from    |
+| 3     | Signature   | Bytes | The signature on the message                 |
+
+The server MUST return `nil` for any requested id that does not exist in the MAIL_LIST Collection,
+or for which the stored message is not in LXMF.
+
+Fetch responses can be large.
+A server MAY refuse a request that selects too many messages, or whose response would be too large,
+with a `NO` response and `GENERAL_ERROR` = `TOO_LARGE`; a client SHOULD then retry with fewer ids.
+The server SHOULD utilize Reticulum Resources for large responses.
 
 ### FETCH_PAYLOAD
 
+Fetch the Payload portion of stored LXMF messages.
 
+**Positional Parameters**
+
+| Index | Name        | Type        | Optional? | Description                      |
+|-------|-------------|-------------|-----------|----------------------------------|
+| 1     | Message IDs | List[Bytes] | No        | The ids of the messages to fetch |
+
+**Return Parameters**
+
+| Index | Name     | Type               | Optional? | Description                                                                                                    |
+|-------|----------|--------------------|-----------|----------------------------------------------------------------------------------------------------------------|
+| 1     | Messages | List[Bytes OR nil] | No        | The message payloads, returned in the same order requested. For messages that aren't found, `nil` is returned. |
+
+
+The Messages Return Parameter is a list of each message's packed payload as a Bytes value: every byte after the head returned by FETCH_HEAD.
+This should be the msgpack encoding of the message's `[Timestamp, Title, Content, Fields]` returned raw.
+
+The server MUST return `nil` for any requested id that does not exist in the MAIL_LIST Collection,
+or for which the stored message is not in LXMF.
+
+Fetch responses can be large.
+A server MAY refuse a request that selects too many messages, or whose response would be too large,
+with a `NO` response and `GENERAL_ERROR` = `TOO_LARGE`; a client SHOULD then retry with fewer ids.
+The server SHOULD utilize Reticulum Resources for large responses.
 
 ### FETCH_CONTENT
 
+Fetch the Content portion of stored messages.
 
+**Positional Parameters**
+
+| Index | Name        | Type        | Optional? | Description                      |
+|-------|-------------|-------------|-----------|----------------------------------|
+| 1     | Message IDs | List[Bytes] | No        | The ids of the messages to fetch |
+
+**Return Parameters**
+
+| Index | Name     | Type               | Optional? | Description                                                                                                    |
+|-------|----------|--------------------|-----------|----------------------------------------------------------------------------------------------------------------|
+| 1     | Messages | List[Bytes OR nil] | No        | The message contents, returned in the same order requested. For messages that aren't found, `nil` is returned. |
+
+The Messages Return Parameter is a list of each message's Content as a Bytes value, decoded from the payload.
+
+The server MUST return `nil` for any requested id that does not exist in the MAIL_LIST Collection.
+For messages not stored as LXMF, the full content is returned as with FETCH_FULL.
+
+Fetch responses can be large.
+A server MAY refuse a request that selects too many messages, or whose response would be too large,
+with a `NO` response and `GENERAL_ERROR` = `TOO_LARGE`; a client SHOULD then retry with fewer ids.
+The server SHOULD utilize Reticulum Resources for large responses.
 
 ### FETCH_FIELDS
 
+Fetch the Fields portion of stored LXMF messages.
 
+**Positional Parameters**
+
+| Index | Name        | Type        | Optional? | Description                      |
+|-------|-------------|-------------|-----------|----------------------------------|
+| 1     | Message IDs | List[Bytes] | No        | The ids of the messages to fetch |
+
+**Return Parameters**
+
+| Index | Name     | Type             | Optional? | Description                                                                                                  |
+|-------|----------|------------------|-----------|--------------------------------------------------------------------------------------------------------------|
+| 1     | Messages | List[Map OR nil] | No        | The message fields, returned in the same order requested. For messages that aren't found, `nil` is returned. |
+
+The Messages Return Parameter is a list of each message's Fields as a Map, decoded from the payload.
+
+The server MUST return `nil` for any requested id that does not exist in the MAIL_LIST Collection,
+or for which the stored message is not in LXMF.
+
+Fetch responses can be large.
+A server MAY refuse a request that selects too many messages, or whose response would be too large,
+with a `NO` response and `GENERAL_ERROR` = `TOO_LARGE`; a client SHOULD then retry with fewer ids.
+The server SHOULD utilize Reticulum Resources for large responses.
 
 ### FETCH_TIMESTAMP
 
+Fetch the Timestamp portion of stored LXMF messages.
 
+**Positional Parameters**
+
+| Index | Name        | Type        | Optional? | Description                      |
+|-------|-------------|-------------|-----------|----------------------------------|
+| 1     | Message IDs | List[Bytes] | No        | The ids of the messages to fetch |
+
+**Return Parameters**
+
+| Index | Name     | Type               | Optional? | Description                                                                                                      |
+|-------|----------|--------------------|-----------|------------------------------------------------------------------------------------------------------------------|
+| 1     | Messages | List[Float OR nil] | No        | The message timestamps, returned in the same order requested. For messages that aren't found, `nil` is returned. |
+
+The Messages Return Parameter is a list of each message's reported Timestamp as a float: the LXMF message timestamp, in seconds since the Unix epoch.
+
+The server MUST return `nil` for any requested id that does not exist in the MAIL_LIST Collection,
+or for which the stored message is not in LXMF.
+
+Fetch responses can be large.
+A server MAY refuse a request that selects too many messages, or whose response would be too large,
+with a `NO` response and `GENERAL_ERROR` = `TOO_LARGE`; a client SHOULD then retry with fewer ids.
+The server SHOULD utilize Reticulum Resources for large responses.
 
 ### FETCH_TITLE
 
+Fetch the Title portion of stored LXMF messages.
 
+**Positional Parameters**
+
+| Index | Name        | Type        | Optional? | Description                      |
+|-------|-------------|-------------|-----------|----------------------------------|
+| 1     | Message IDs | List[Bytes] | No        | The ids of the messages to fetch |
+
+**Return Parameters**
+
+| Index | Name     | Type               | Optional? | Description                                                                                                  |
+|-------|----------|--------------------|-----------|--------------------------------------------------------------------------------------------------------------|
+| 1     | Messages | List[Bytes OR nil] | No        | The message titles, returned in the same order requested. For messages that aren't found, `nil` is returned. |
+
+The Messages Return Parameter is a list of each message's Title as a Bytes value, decoded from the payload.
+
+The server MUST return `nil` for any requested id that does not exist in the MAIL_LIST Collection,
+or for which the stored message is not in LXMF.
+
+Fetch responses can be large.
+A server MAY refuse a request that selects too many messages, or whose response would be too large,
+with a `NO` response and `GENERAL_ERROR` = `TOO_LARGE`; a client SHOULD then retry with fewer ids.
+The server SHOULD utilize Reticulum Resources for large responses.
 
 ### SEARCH_TITLE
 
+Search LXMF messages by the Title portion.
 
+**Positional Parameters**
+
+| Index | Name  | Type   | Optional? | Description                           |
+|-------|-------|--------|-----------|---------------------------------------|
+| 1     | Query | String | No        | The text to search message Titles for |
+
+**Keyed Parameters**
+
+| Key | Name        | Type | Optional? | Description                                                    |
+|-----|-------------|------|-----------|----------------------------------------------------------------|
+| 0   | MAX_RESULTS | Int  | Yes       | The maximum number of Message IDs the client wishes to receive |
+
+**Return Parameters**
+
+| Index | Name        | Type        | Optional? | Description                                       |
+|-------|-------------|-------------|-----------|---------------------------------------------------|
+| 1     | Message IDs | List[Bytes] | No        | The ids of messages whose Title matches the Query |
+
+The matching semantics are implementation-defined, but a server SHOULD at minimum perform a case-insensitive substring match.
+The order of the returned ids is unspecified.
+If MAX_RESULTS is given, the server MUST NOT return more than that many ids;
+which matches are dropped when results are truncated is implementation-defined.
+A server MAY additionally limit result counts, and MAY return `NO` with `GENERAL_ERROR` = `TOO_LARGE` instead of truncating.
 
 ### SEARCH_CONTENT
 
+Search messages by the Content portion.
 
+**Positional Parameters**
+
+| Index | Name  | Type   | Optional? | Description                            |
+|-------|-------|--------|-----------|----------------------------------------|
+| 1     | Query | String | No        | The text to search message Content for |
+
+**Keyed Parameters**
+
+| Key | Name        | Type | Optional? | Description                                                    |
+|-----|-------------|------|-----------|----------------------------------------------------------------|
+| 0   | MAX_RESULTS | Int  | Yes       | The maximum number of Message IDs the client wishes to receive |
+
+**Return Parameters**
+
+| Index | Name        | Type        | Optional? | Description                                         |
+|-------|-------------|-------------|-----------|-----------------------------------------------------|
+| 1     | Message IDs | List[Bytes] | No        | The ids of messages whose Content matches the Query |
+
+The matching semantics are implementation-defined, but a server SHOULD at minimum perform a case-insensitive substring match.
+The order of the returned ids is unspecified.
+If MAX_RESULTS is given, the server MUST NOT return more than that many ids;
+which matches are dropped when results are truncated is implementation-defined.
+A server MAY additionally limit result counts, and MAY return `NO` with `GENERAL_ERROR` = `TOO_LARGE` instead of truncating.
+
+If non-LXMF messages are present in the mailbox, non-LXMF messages SHOULD be searched by full text.
 
 ### UPLOAD
 
-
+This request updates state. See section "Mailbox state".
 
 ### DELETE
 
-
+This request updates state. See section "Mailbox state".
 
 ### CREATE_TAG
 
+This request updates state. See section "Mailbox state".
 
 ### DELETE_TAG
 
+This request updates state. See section "Mailbox state".
 
 ### RENAME_TAG
 
-
+This request updates state. See section "Mailbox state".
 
 ### ADD_TAG
 
-
+This request updates state. See section "Mailbox state".
 
 ### REMOVE_TAG
 
+This request updates state. See section "Mailbox state".
 
 ### SET_METADATA
 
+This request updates state. See section "Mailbox state".
 
 ### REMOVE_METADATA
 
+This request updates state. See section "Mailbox state".
+
+### SEND_RAW
+
+This request may update state. See section "Mailbox state".
+
+Send a raw message from the server to another destination
+
+### SEND_LXMF
+
+This request may update state. See section "Mailbox state".
+
+Send an LXMF message from the server to another destination
 
 ## Notifications
 
-TODO
+A Notification is an Exchange for which no Response is expected.
+
+The first Parameter of a Notification is an integer event type.
+The integers 0-127 inclusive are reserved for standardized event types; extensions MAY use integers outside this range.
+Each event type defines the Parameters that follow it.
+
+| Code | Name              | Description                                       |
+|------|-------------------|---------------------------------------------------|
+| 0    | COLLECTION_UPDATE | A subscribed Collection's State Token has changed |
+
+A receiver MUST ignore Notifications with an event type it does not recognize.
+
+### COLLECTION_UPDATE
