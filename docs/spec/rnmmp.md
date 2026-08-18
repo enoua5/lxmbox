@@ -64,7 +64,7 @@ The Link and Single modes differ in how data is transferred and in how the clien
 An Exchange is some unit of information transferred between the client and the server.
 This can include Requests, Responses, and Notifications.
 
-All exchanges are formatted as a [msgpack](https://msgpack.org/) array, with the first argument being an integer acting as the exchange type:
+All exchanges are formatted as a [msgpack](https://msgpack.org/) array, with the first item being an integer acting as the exchange type:
 
 | Exchange Type | Code |
 |---------------|------|
@@ -75,7 +75,7 @@ All exchanges are formatted as a [msgpack](https://msgpack.org/) array, with the
 Additional items in the array are Parameters carrying the content of the Exchange.
 
 Implementations MUST ignore Exchanges with types they do not recognize.
-Implementations SHOULD ignore Exchanges with missing required parameters.
+Implementations MUST reject Exchanges with missing required parameters.
 Implementations SHOULD accept Exchanges with unexpected additional parameters.
 
 #### Requests
@@ -99,7 +99,7 @@ Additional parameters may be required as defined by the request type.
 The first of these additional parameters, if any additional parameters are provided,
 will always be a map containing additional non-positional arguments,
 with meanings assigned according to request type — referred to as Keyed Parameters.
-A sender SHOULD NOT include keys in this parameter not defined in the spec.
+A sender SHOULD NOT include keys in this parameter that are not defined in this spec.
 A receiver MUST accept and ignore keys in this parameter it does not expect.
 Additional parameters after the Keyed Parameter map are referred to as Positional Parameters.
 
@@ -110,9 +110,10 @@ A Response is an Exchange returning information requested by a Request.
 The format of a Response consists of at least two parameters.
 
 The first parameter is the Request ID.
-This value MUST be the same as included in the request.
+This value MUST be the same as the one included in the request.
 
 The second parameter is the status code:
+
 | Status        | Code | Description                                                                    |
 |---------------|------|--------------------------------------------------------------------------------|
 | OK            | 0    | The action was performed                                                       |
@@ -193,7 +194,7 @@ These states are organized into Collections, with each Collection being associat
 The State Token MUST be represented in msgpack using the Bin type family.
 
 Whenever a Collection's state is updated, the server MUST create a new State Token to represent it.
-State Tokens are to be intepreted as opaque and MUST NOT be parsed by the client; only used raw.
+State Tokens are to be interpreted as opaque and MUST NOT be parsed by the client; only used raw.
 
 The zero-length byte array (msgpack `0xC4 0x00`) is reserved to represent the "Initial State".
 A client can use the Initial State Token as its last known State Token to indicate that they
@@ -213,13 +214,13 @@ Extensions MAY use integers outside of this range for other Collections.
 Note that message *content* is immutable.
 A client's stored mailbox state does not need to include it.
 
-The `MESSAGE_TAG` and `METADATA` Collections are keyed by ids from the `MAIL_LIST` Collection,
-and the `MESSAGE_TAG` Collection is keyed by ids from the `TAG_LIST` Collection.
+The  `METADATA` Collection is keyed by ids from the `MAIL_LIST` Collection,
+and the `MESSAGE_TAG` Collection is keyed by ids from the `MAIL_LIST` and `TAG_LIST` Collections.
 The client MUST tolerate items in these Collections referring to ids not known to exist in other Collections.
 
 ### Requests that mutate state
 
-All requests that mutate state (UPLOAD, DELETE, CREATE_TAG, etc) modify the mailbox.
+All requests that mutate state (UPLOAD, DELETE, CREATE_TAG, etc.) modify the mailbox.
 They share the behaviour described here, in addition to behaviour described in the "Request types" section.
 
 Some write requests involve more than one state change.
@@ -268,7 +269,7 @@ the client MUST NOT update their last known state, and SHOULD mark their state a
 Request types are represented by an integer code.
 The numbers from 0-127 inclusive are reserved for official request types.
 Numbers outside of this range MAY be used for implementation-defined request types.
-The following request types MUST be supported by the server;
+The following request types SHOULD be supported by the server;
 the server MAY opt to return a `NO` response with `GENERAL_ERROR` = `UNSUPPORTED` for any request.
 
 | Code | Name              | Description (see subsections for specification)                                                    |
@@ -282,12 +283,12 @@ the server MAY opt to return a `NO` response with `GENERAL_ERROR` = `UNSUPPORTED
 | 6    | FETCH_FULL         | Fetch raw stored messages                                                                         |
 | 7    | FETCH_HEAD         | Fetch the Destination, Source, and Signature fields of stored LXMF messages                       |
 | 8    | FETCH_PAYLOAD      | Fetch the Payload portion of stored LXMF messages                                                 |
-| 9    | FETCH_CONTENT      | Fetch the Content portion of stored LXMF messages                                                 |
+| 9    | FETCH_CONTENT      | Fetch the Content portion of stored messages                                                      |
 | 10   | FETCH_FIELDS       | Fetch the Fields portion of stored LXMF messages                                                  |
 | 11   | FETCH_TIMESTAMP    | Fetch the Timestamp portion of stored LXMF messages                                               |
 | 12   | FETCH_TITLE        | Fetch the Title portion of stored LXMF messages                                                   |
 | 13   | SEARCH_TITLE       | Search LXMF messages by the Title portion                                                         |
-| 14   | SEARCH_CONTENT     | Search LXMF messages by the Content portion                                                       |
+| 14   | SEARCH_CONTENT     | Search messages by the Content portion                                                            |
 | 15   | UPLOAD             | Add messages to the Mail List Collection manually outside of the built-in delivery mechanism      |
 | 16   | DELETE             | Remove messages from the Mail List Collection                                                     |
 | 17   | CREATE_TAG         | Add named tags to the Tag List Collection                                                         |
@@ -332,7 +333,7 @@ When a list is used, it MUST be length 2;
 the first element MUST be an integer or string as defined above;
 and the second element MUST be a map containing variant information as defined for the feature code.
 
-The first element of the feature list MUST be a protocol version,
+The first element of the Capability List MUST be a protocol version,
 which will be incremented when breaking changes are made to the spec.
 Currently, the only version code supported is `1`.
 
@@ -356,12 +357,13 @@ Indicate that the client would like to receive active updates regarding a Collec
 | 2    | NO_PASSIVE_NOTIFS   | Server refuses to send LXMF notifications, only supporting notifications over an active link                       |
 | 3    | REFUSED             | Server refuses to send notifications as requested for unspecified/other reasons                                    |
 
-If accepted, the server will begin to send COLLECTION_UPDATE Notifications whenever the State Token for the specified Collection changes.
+If accepted, the server SHOULD begin to send COLLECTION_UPDATE Notifications whenever the State Token for the specified Collection changes.
+The server MAY delay sending COLLECTION_UPDATE Notifications in order to "batch" multiple and send singular updates for settled state.
 
 If Destination is specified, these notifications will be sent in Single mode as LXMF to the specified Reticulum Destination.
 
 If Destination is not specified, notifications will be sent to the client making the request:
-- If the request was made in Single mode, notifications will be sent in Single mode as LXMF to the request's Destination.
+- If the request was made in Single mode, notifications will be sent in Single mode as LXMF to the request's Source Destination.
 - If the request was made in Link mode, notifications will be sent in the active link; these updates will be automatically unsubscribed when the link closes.
 
 ### UNSUBSCRIBE
@@ -384,9 +386,9 @@ List active subscriptions for Single Mode destinations.
 
 **Return Parameters**
 
-| Index | Name        | Type               | Optional? | Description                                                                                                                         |
-|-------|-------------|--------------------|-----------|-------------------------------------------------------------------------------------------------------------------------------------|
-| 1     | Subscribers | List[[Int, Bytes]] | No        | A list of 2-tuples of [Collection ID, Reticulum Destination] pairs for currently active Single Mode COLLECTION_UPDATE Notifications |
+| Index | Name        | Type               | Optional? | Description                                                                                                             |
+|-------|-------------|--------------------|-----------|-------------------------------------------------------------------------------------------------------------------------|
+| 1     | Subscribers | List[[Int, Bytes]] | No        | A list of [Collection ID, Reticulum Destination] pairs for currently active Single Mode COLLECTION_UPDATE Notifications |
 
 ### SYNC
 
@@ -399,18 +401,18 @@ Get the delta for a Collection from a given State Token
 | 1     | Collection ID    | Int   | No        | The ID of the Collection to request a Delta for                                          |
 | 2     | Last Known State | Bytes | No        | The client's last known State Token for the Collection, for a delta to be generated from |
 
-**Specific Error Codes**
-
-| Code | Name                | Description                                                                                                                  |
-|------|---------------------|------------------------------------------------------------------------------------------------------------------------------|
-| 0    | UNKNOWN_COLLECTION  | Server does not have a Collection with the requested ID                                                                      |
-| 1    | UNKNOWN_STATE       | Server cannot generate a delta from the given state to the requested state. Client SHOULD retry with the Initial State Token |
-
 **Return Parameters**
 
 | Index | Name  | Type | Optional? | Description                                                                                 |
 |-------|-------|------|-----------|---------------------------------------------------------------------------------------------|
 | 1     | Delta | Map  | No        | Structured details about the changes to the collection since the specified Last Known State |
+
+**Specific Error Codes**
+
+| Code | Name                | Description                                                                                                                |
+|------|---------------------|----------------------------------------------------------------------------------------------------------------------------|
+| 0    | UNKNOWN_COLLECTION  | Server does not have a Collection with the requested ID                                                                    |
+| 1    | UNKNOWN_STATE       | Server cannot generate a delta from the given state to the current state. Client SHOULD retry with the Initial State Token |
 
 The exact format of the Delta Return Parameter depends on the Collection type.
 
@@ -422,7 +424,7 @@ where ADDED is a complete list of messages that did not exist in the Last Known 
 and DELETED is a complete list of messages that existed in the Last Known State but now do not.
 
 A Message ID MUST NOT appear in both the ADDED and DELETED list.
-I.E., If a message was added and then deleted since the Last Known State, it should not appear in the delta.
+I.e., if a message was added and then deleted since the Last Known State, it should not appear in the delta.
 
 Messages that have the same existence state as the Last Known State MUST NOT appear.
 
@@ -433,10 +435,10 @@ For tags that have been created or renamed since the Last Known State, the value
 For tags that have been deleted since the Last Known State, the value is `nil`.
 
 Intermediary states MUST NOT be represented.
-I.E., If a tag is renamed multiple times, only the current name is shown;
+I.e., if a tag is renamed multiple times, only the current name is shown;
 and if a tag is deleted and a new tag with the same ID is created, the Delta is shown the same as if the tag was renamed.
 
-Tags ids that have the same name as in the Last Known State MUST NOT appear.
+Tag IDs that have the same name as in the Last Known State MUST NOT appear.
 
 #### MESSAGE_TAG Delta
 
@@ -445,7 +447,7 @@ For messages that have had tags added or removed, the value is the list of curre
 For messages that have been deleted, the value is `nil`.
 
 Intermediary states MUST NOT be represented.
-I.E., if a tag is added and then removed, its addition MUST NOT be reported.
+I.e., if a tag is added and then removed, its addition MUST NOT be reported.
 
 If a message has the same set of tags as in the Last Known State, it MUST NOT appear in the Delta.
 The set of tags does not have an order; if the server represents tags in an order,
@@ -458,7 +460,7 @@ For messages that have had Metadata changed, the value is the message's current 
 For messages that have been deleted, the value is `nil`.
 
 Intermediary states MUST NOT be represented.
-I.E., if a metadata field is added and then removed, it MUST NOT be included in the Delta.
+I.e., if a metadata field is added and then removed, it MUST NOT be included in the Delta.
 
 If a message has the same metadata as the Last Known State, it MUST NOT appear in the Delta.
 A server MAY consider a Map as ordered or unordered when determining if an update needs to be reported.
@@ -479,7 +481,7 @@ Fetch raw stored messages including all LXMF headers.
 |-------|----------|--------------------|-----------|-------------------------------------------------------------------------------------------------------|
 | 1     | Messages | List[Bytes OR nil] | No        | The messages, returned in the same order requested. For messages that aren't found, `nil` is returned |
 
-The Messages Return Parameter is a list of message raw message data returned byte-for-byte as delivered.
+The Messages Return Parameter is a list of raw message data returned byte-for-byte as delivered.
 The server MUST return `nil` for any requested id that does not exist in the MAIL_LIST Collection.
 
 Fetch responses can be large.
@@ -503,7 +505,8 @@ Fetch the Destination, Source, and Signature fields of stored LXMF messages.
 |-------|----------|--------------------|-----------|---------------------------------------------------------------------------------------------------------------|
 | 1     | Messages | List[Bytes OR nil] | No        | The message headers, returned in the same order requested. For messages that aren't found, `nil` is returned. |
 
-The Messages Return Parameter is a list of each message's header as a Bytes value:
+The Messages Return Parameter is a list of each message's header as a Bytes value;
+containing the Destination, Source, and Signature portions of the LXMF message:
 
 | Index | Name        | Type  | Description                                  |
 |-------|-------------|-------|----------------------------------------------|
@@ -534,7 +537,6 @@ Fetch the Payload portion of stored LXMF messages.
 | Index | Name     | Type               | Optional? | Description                                                                                                    |
 |-------|----------|--------------------|-----------|----------------------------------------------------------------------------------------------------------------|
 | 1     | Messages | List[Bytes OR nil] | No        | The message payloads, returned in the same order requested. For messages that aren't found, `nil` is returned. |
-
 
 The Messages Return Parameter is a list of each message's packed payload as a Bytes value: every byte after the head returned by FETCH_HEAD.
 This should be the msgpack encoding of the message's `[Timestamp, Title, Content, Fields]` returned raw.
