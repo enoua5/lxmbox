@@ -244,7 +244,7 @@ The updated Collection map should use Collection IDs as keys and those Collectio
 
 | Index | Name           | Type                      | Optional? | Description                                                                            |
 |-------|----------------|---------------------------|-----------|----------------------------------------------------------------------------------------|
-| 1     | Updated States | Map[Int → [Bytes, Bytes]] | No        | A map of Collection ID to State Token updates, for each Collection the request changed |
+| 0     | Updated States | Map[Int → [Bytes, Bytes]] | No        | A map of Collection ID to State Token updates, for each Collection the request changed |
 
 On an `OK` response, a write request returns the updated State Token information of every Collection that had a state change.
 A Collection whose state did not change MUST NOT appear.
@@ -320,7 +320,7 @@ Request a list of optional features and extensions the server supports.
 
 | Index | Name            | Type                                  | Optional? | Description                               |
 |-------|-----------------|---------------------------------------|-----------|-------------------------------------------|
-| 1     | Capability List | list[int OR str OR [int OR str, map]] | No        | The optional features the server supports |
+| 0     | Capability List | list[int OR str OR [int OR str, map]] | No        | The optional features the server supports |
 
 #### Capability list
 
@@ -345,8 +345,8 @@ Indicate that the client would like to receive active updates regarding a Collec
 
 | Index | Name        | Type  | Optional? | Description                                                  |
 |-------|-------------|-------|-----------|--------------------------------------------------------------|
-| 1     | Collection  | Int   | No        | The collection to subscribe to updates for                   |
-| 2     | Destination | Bytes | Yes       | A Reticulum Destination to send LXMF Update Notifications to |
+| 0     | Collection  | Int   | No        | The collection to subscribe to updates for                   |
+| 1     | Destination | Bytes | Yes       | A Reticulum Destination to send LXMF Update Notifications to |
 
 **Specific Error Codes**
 
@@ -374,8 +374,8 @@ Indicate that the client would like to stop receiving active updates regarding a
 
 | Index | Name        | Type  | Optional? | Description                                                  |
 |-------|-------------|-------|-----------|--------------------------------------------------------------|
-| 1     | Collection  | Int   | No        | The collection to unsubscribe from updates for               |
-| 2     | Destination | Bytes | Yes       | A Reticulum Destination where notifications were being sent  |
+| 0     | Collection  | Int   | No        | The collection to unsubscribe from updates for               |
+| 1     | Destination | Bytes | Yes       | A Reticulum Destination where notifications were being sent  |
 
 Request to stop receiving COLLECTION_UPDATE Notifications requested via the SUBSCRIBE command.
 Positional parameters are understood the same as with the SUBSCRIBE command.
@@ -388,7 +388,7 @@ List active subscriptions for Single Mode destinations.
 
 | Index | Name        | Type               | Optional? | Description                                                                                                             |
 |-------|-------------|--------------------|-----------|-------------------------------------------------------------------------------------------------------------------------|
-| 1     | Subscribers | List[[Int, Bytes]] | No        | A list of [Collection ID, Reticulum Destination] pairs for currently active Single Mode COLLECTION_UPDATE Notifications |
+| 0     | Subscribers | List[[Int, Bytes]] | No        | A list of [Collection ID, Reticulum Destination] pairs for currently active Single Mode COLLECTION_UPDATE Notifications |
 
 ### SYNC
 
@@ -398,14 +398,14 @@ Get the delta for a Collection from a given State Token
 
 | Index | Name             | Type  | Optional? | Description                                                                              |
 |-------|------------------|-------|-----------|------------------------------------------------------------------------------------------|
-| 1     | Collection ID    | Int   | No        | The ID of the Collection to request a Delta for                                          |
-| 2     | Last Known State | Bytes | No        | The client's last known State Token for the Collection, for a delta to be generated from |
+| 0     | Collection ID    | Int   | No        | The ID of the Collection to request a Delta for                                          |
+| 1     | Last Known State | Bytes | No        | The client's last known State Token for the Collection, for a delta to be generated from |
 
 **Return Parameters**
 
 | Index | Name  | Type | Optional? | Description                                                                                 |
 |-------|-------|------|-----------|---------------------------------------------------------------------------------------------|
-| 1     | Delta | Map  | No        | Structured details about the changes to the collection since the specified Last Known State |
+| 0     | Delta | Map  | No        | Structured details about the changes to the collection since the specified Last Known State |
 
 **Specific Error Codes**
 
@@ -473,13 +473,13 @@ Fetch raw stored messages including all LXMF headers.
 
 | Index | Name        | Type        | Optional? | Description                      |
 |-------|-------------|-------------|-----------|----------------------------------|
-| 1     | Message IDs | List[Bytes] | No        | The ids of the messages to fetch |
+| 0     | Message IDs | List[Bytes] | No        | The ids of the messages to fetch |
 
 **Return Parameters**
 
 | Index | Name     | Type               | Optional? | Description                                                                                           |
 |-------|----------|--------------------|-----------|-------------------------------------------------------------------------------------------------------|
-| 1     | Messages | List[Bytes OR nil] | No        | The messages, returned in the same order requested. For messages that aren't found, `nil` is returned |
+| 0     | Messages | List[Bytes OR nil] | No        | The messages, returned in the same order requested. For messages that aren't found, `nil` is returned |
 
 The Messages Return Parameter is a list of raw message data returned byte-for-byte as delivered.
 The server MUST return `nil` for any requested id that does not exist in the MAIL_LIST Collection.
@@ -497,22 +497,22 @@ Fetch the Destination, Source, and Signature fields of stored LXMF messages.
 
 | Index | Name        | Type        | Optional? | Description                      |
 |-------|-------------|-------------|-----------|----------------------------------|
-| 1     | Message IDs | List[Bytes] | No        | The ids of the messages to fetch |
+| 0     | Message IDs | List[Bytes] | No        | The ids of the messages to fetch |
 
 **Return Parameters**
 
 | Index | Name     | Type               | Optional? | Description                                                                                                   |
 |-------|----------|--------------------|-----------|---------------------------------------------------------------------------------------------------------------|
-| 1     | Messages | List[Bytes OR nil] | No        | The message headers, returned in the same order requested. For messages that aren't found, `nil` is returned. |
+| 0     | Messages | List[Bytes OR nil] | No        | The message headers, returned in the same order requested. For messages that aren't found, `nil` is returned. |
 
 The Messages Return Parameter is a list of each message's header as a Bytes value;
 containing the Destination, Source, and Signature portions of the LXMF message:
 
 | Index | Name        | Type  | Description                                  |
 |-------|-------------|-------|----------------------------------------------|
-| 1     | Destination | Bytes | The destination hash the message was sent to |
-| 2     | Source      | Bytes | The source hash the message was sent from    |
-| 3     | Signature   | Bytes | The signature on the message                 |
+| 0     | Destination | Bytes | The destination hash the message was sent to |
+| 1     | Source      | Bytes | The source hash the message was sent from    |
+| 2     | Signature   | Bytes | The signature on the message                 |
 
 The server MUST return `nil` for any requested id that does not exist in the MAIL_LIST Collection,
 or for which the stored message is not in LXMF.
@@ -530,13 +530,13 @@ Fetch the Payload portion of stored LXMF messages.
 
 | Index | Name        | Type        | Optional? | Description                      |
 |-------|-------------|-------------|-----------|----------------------------------|
-| 1     | Message IDs | List[Bytes] | No        | The ids of the messages to fetch |
+| 0     | Message IDs | List[Bytes] | No        | The ids of the messages to fetch |
 
 **Return Parameters**
 
 | Index | Name     | Type               | Optional? | Description                                                                                                    |
 |-------|----------|--------------------|-----------|----------------------------------------------------------------------------------------------------------------|
-| 1     | Messages | List[Bytes OR nil] | No        | The message payloads, returned in the same order requested. For messages that aren't found, `nil` is returned. |
+| 0     | Messages | List[Bytes OR nil] | No        | The message payloads, returned in the same order requested. For messages that aren't found, `nil` is returned. |
 
 The Messages Return Parameter is a list of each message's packed payload as a Bytes value: every byte after the head returned by FETCH_HEAD.
 This should be the msgpack encoding of the message's `[Timestamp, Title, Content, Fields]` returned raw.
@@ -557,13 +557,13 @@ Fetch the Content portion of stored messages.
 
 | Index | Name        | Type        | Optional? | Description                      |
 |-------|-------------|-------------|-----------|----------------------------------|
-| 1     | Message IDs | List[Bytes] | No        | The ids of the messages to fetch |
+| 0     | Message IDs | List[Bytes] | No        | The ids of the messages to fetch |
 
 **Return Parameters**
 
 | Index | Name     | Type               | Optional? | Description                                                                                                    |
 |-------|----------|--------------------|-----------|----------------------------------------------------------------------------------------------------------------|
-| 1     | Messages | List[Bytes OR nil] | No        | The message contents, returned in the same order requested. For messages that aren't found, `nil` is returned. |
+| 0     | Messages | List[Bytes OR nil] | No        | The message contents, returned in the same order requested. For messages that aren't found, `nil` is returned. |
 
 The Messages Return Parameter is a list of each message's Content as a Bytes value, decoded from the payload.
 
@@ -583,13 +583,13 @@ Fetch the Fields portion of stored LXMF messages.
 
 | Index | Name        | Type        | Optional? | Description                      |
 |-------|-------------|-------------|-----------|----------------------------------|
-| 1     | Message IDs | List[Bytes] | No        | The ids of the messages to fetch |
+| 0     | Message IDs | List[Bytes] | No        | The ids of the messages to fetch |
 
 **Return Parameters**
 
 | Index | Name     | Type             | Optional? | Description                                                                                                  |
 |-------|----------|------------------|-----------|--------------------------------------------------------------------------------------------------------------|
-| 1     | Messages | List[Map OR nil] | No        | The message fields, returned in the same order requested. For messages that aren't found, `nil` is returned. |
+| 0     | Messages | List[Map OR nil] | No        | The message fields, returned in the same order requested. For messages that aren't found, `nil` is returned. |
 
 The Messages Return Parameter is a list of each message's Fields as a Map, decoded from the payload.
 
@@ -609,13 +609,13 @@ Fetch the Timestamp portion of stored LXMF messages.
 
 | Index | Name        | Type        | Optional? | Description                      |
 |-------|-------------|-------------|-----------|----------------------------------|
-| 1     | Message IDs | List[Bytes] | No        | The ids of the messages to fetch |
+| 0     | Message IDs | List[Bytes] | No        | The ids of the messages to fetch |
 
 **Return Parameters**
 
 | Index | Name     | Type               | Optional? | Description                                                                                                      |
 |-------|----------|--------------------|-----------|------------------------------------------------------------------------------------------------------------------|
-| 1     | Messages | List[Float OR nil] | No        | The message timestamps, returned in the same order requested. For messages that aren't found, `nil` is returned. |
+| 0     | Messages | List[Float OR nil] | No        | The message timestamps, returned in the same order requested. For messages that aren't found, `nil` is returned. |
 
 The Messages Return Parameter is a list of each message's reported Timestamp as a float: the LXMF message timestamp, in seconds since the Unix epoch.
 
@@ -635,13 +635,13 @@ Fetch the Title portion of stored LXMF messages.
 
 | Index | Name        | Type        | Optional? | Description                      |
 |-------|-------------|-------------|-----------|----------------------------------|
-| 1     | Message IDs | List[Bytes] | No        | The ids of the messages to fetch |
+| 0     | Message IDs | List[Bytes] | No        | The ids of the messages to fetch |
 
 **Return Parameters**
 
 | Index | Name     | Type               | Optional? | Description                                                                                                  |
 |-------|----------|--------------------|-----------|--------------------------------------------------------------------------------------------------------------|
-| 1     | Messages | List[Bytes OR nil] | No        | The message titles, returned in the same order requested. For messages that aren't found, `nil` is returned. |
+| 0     | Messages | List[Bytes OR nil] | No        | The message titles, returned in the same order requested. For messages that aren't found, `nil` is returned. |
 
 The Messages Return Parameter is a list of each message's Title as a Bytes value, decoded from the payload.
 
@@ -661,7 +661,7 @@ Search LXMF messages by the Title portion.
 
 | Index | Name  | Type   | Optional? | Description                           |
 |-------|-------|--------|-----------|---------------------------------------|
-| 1     | Query | String | No        | The text to search message Titles for |
+| 0     | Query | String | No        | The text to search message Titles for |
 
 **Keyed Parameters**
 
@@ -673,7 +673,7 @@ Search LXMF messages by the Title portion.
 
 | Index | Name        | Type        | Optional? | Description                                       |
 |-------|-------------|-------------|-----------|---------------------------------------------------|
-| 1     | Message IDs | List[Bytes] | No        | The ids of messages whose Title matches the Query |
+| 0     | Message IDs | List[Bytes] | No        | The ids of messages whose Title matches the Query |
 
 The matching semantics are implementation-defined, but a server SHOULD at minimum perform a case-insensitive substring match.
 The order of the returned ids is unspecified.
@@ -689,7 +689,7 @@ Search messages by the Content portion.
 
 | Index | Name  | Type   | Optional? | Description                            |
 |-------|-------|--------|-----------|----------------------------------------|
-| 1     | Query | String | No        | The text to search message Content for |
+| 0     | Query | String | No        | The text to search message Content for |
 
 **Keyed Parameters**
 
@@ -701,7 +701,7 @@ Search messages by the Content portion.
 
 | Index | Name        | Type        | Optional? | Description                                         |
 |-------|-------------|-------------|-----------|-----------------------------------------------------|
-| 1     | Message IDs | List[Bytes] | No        | The ids of messages whose Content matches the Query |
+| 0     | Message IDs | List[Bytes] | No        | The ids of messages whose Content matches the Query |
 
 The matching semantics are implementation-defined, but a server SHOULD at minimum perform a case-insensitive substring match.
 The order of the returned ids is unspecified.
