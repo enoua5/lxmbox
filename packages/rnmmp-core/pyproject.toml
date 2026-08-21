@@ -1,20 +1,16 @@
 [project]
-name = "rnmmp-client"
+name = "rnmmp-core"
 version = "0.0.0"
-description = "Reticulum Network Mail Management Protocol — client library"
+description = "Reticulum Network Mail Management Protocol — shared protocol definitions."
 readme = "README.md"
 requires-python = ">=3.13"
 license = "MIT"
 authors = [{ name = "Enoua5" }]
-dependencies = [
-    "rnmmp-core",
-    "rns>=1.4.2",
-    "lxmf>=1.1.0",
-]
+dependencies = []
 
 [build-system]
 requires = ["hatchling"]
 build-backend = "hatchling.build"
 
 [tool.hatch.build.targets.wheel]
-packages = ["src/rnmmp_client"]
+packages = ["src/rnmmp_core"]

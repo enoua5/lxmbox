@@ -45,7 +45,8 @@ package under `packages/`:
 
 | Package | Role |
 |---|---|
-| [`rnmmp`](packages/rnmmp) | The rnmmp protocol and server implementation. Can stand alone and act as a server for any rnmmp client. |
+| [`rnmmp-core`](packages/rnmmp-core) | The rnmmp protocol constants and utilities shared by client and server. |
+| [`rnmmp-server`](packages/rnmmp-server) | The rnmmp server implementation. Can stand alone and act as a server for any rnmmp client. |
 | [`rnmmp-client`](packages/rnmmp-client) | The rnmmp client library for building client implementations. |
 | [`lxmbox-mailboxd`](packages/lxmbox-mailboxd) | The mail daemon, hosting multiple mailbox identities. Accepts LXMF deliveries and serves rnmmp per mailbox, plus an `lxmbox.control` API for non-rnmmp functionality. |
 | [`lxmbox-cli`](packages/lxmbox-cli) | The `lxmbox` CLI: a simple rnmmp + lxmbox client with a local cache. |
@@ -61,10 +62,10 @@ Requires Python 3.13+ and `uv`.
 
 ```sh
 # From the repository root:
-uv sync --all-packages          # create the workspace environment
-uv run pytest                   # run the test suite
-uv run ruff check .             # lint
-uv run mypy packages/rnmmp/src   # type-check the protocol core
+uv sync --all-packages               # create the workspace environment
+uv run pytest                        # run the test suite
+uv run ruff check .                  # lint
+uv run mypy packages/rnmmp-core/src  # type-check the protocol core
 ```
 
 ## License
