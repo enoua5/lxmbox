@@ -84,13 +84,13 @@ A Request is an Exchange for which a Response is expected.
 
 The format of a Request consists of at least two Parameters.
 
-The first parameter is an integer serving as the "Request ID".
+The first parameter is an integer serving as the "Request id".
 This helps match a Response back to the Request that initiated it.
 
-When using the Link connection mode, each Request SHOULD use a Request ID the sender has not yet used.
+When using the Link connection mode, each Request SHOULD use a Request id the sender has not yet used.
 The receiver MUST accept requests with duplicate IDs.
 
-When using the Single mode, responses can be matched to requests without needing the Request ID; the Request ID SHOULD be set to `0` in this case.
+When using the Single mode, responses can be matched to requests without needing the Request id; the Request id SHOULD be set to `0` in this case.
 
 The second Parameter is the request type, indicating an action the sender wants the receiver to complete.
 See section "Request types" for more information.
@@ -109,7 +109,7 @@ A Response is an Exchange returning information requested by a Request.
 
 The format of a Response consists of at least two parameters.
 
-The first parameter is the Request ID.
+The first parameter is the Request id.
 This value MUST be the same as the one included in the request.
 
 The second parameter is the status code:
@@ -231,7 +231,7 @@ If the server returns a `NO` or `BAD` response, the client MUST be able to assum
 
 | Key | Name        | Type             | Optional? | Description                                                                                   |
 |-----|-------------|------------------|-----------|-----------------------------------------------------------------------------------------------|
-| 0   | IF_IN_STATE | Map[Int → Bytes] | Yes       | A map of Collection ID to the State Token the client believes that Collection is currently in |
+| 0   | IF_IN_STATE | Map[Int → Bytes] | Yes       | A map of Collection id to the State Token the client believes that Collection is currently in |
 
 A client MAY specify `IF_IN_STATE` to prevent unexpected results when multiple clients are connected simultaneously.
 If `IF_IN_STATE` is present, the server MUST compare each supplied State Token against the current State Token of the corresponding Collection *before* applying any change.
@@ -244,7 +244,7 @@ The updated Collection map should use Collection IDs as keys and those Collectio
 
 | Index | Name           | Type                      | Optional? | Description                                                                            |
 |-------|----------------|---------------------------|-----------|----------------------------------------------------------------------------------------|
-| 0     | Updated States | Map[Int → [Bytes, Bytes]] | No        | A map of Collection ID to State Token updates, for each Collection the request changed |
+| 0     | Updated States | Map[Int → [Bytes, Bytes]] | No        | A map of Collection id to State Token updates, for each Collection the request changed |
 
 On an `OK` response, a write request returns the updated State Token information of every Collection that had a state change.
 A Collection whose state did not change MUST NOT appear.
@@ -258,11 +258,64 @@ the client MUST NOT update their last known state, and SHOULD mark their state a
 
 ### MAIL_LIST
 
+The MAIL_LIST Collection is a set of IDs representing mail items in the mailbox.
+
+When determining the MAIL_LIST Collection State, this list MUST be considered unordered.
+Duplicate values MUST NOT appear in this list.
+
+For LXMF messages, the id value SHOULD be the LXMF message-id.
+Identical LXMD messages SHOULD be considered the same message.
+
+For non-LXMF messages, the id SHOULD be a univerally unique id such as UUID.
+The server MAY deduplicate identical non-LXMF messages, in which case the id MAY be derived from the text.
+
 ### TAG_LIST
+
+The TAG_LIST Collection is a set of names assigned to integer IDs.
+
+Tags with negative IDs are Server-Defined Tags, which are a static list the client cannot change.
+New Server-Defined Tags MAY be added by an implementation, but SHOULD NOT be removed.
+
+Tags with IDs from -32 to -1 inclusive are reserved for definition within the rnmmp specification.
+See the table below for a list of these standard tags.
+Many of these standard tags are intended to be managed by the server and client automatically
+to track basic information about a message.
+
+| ID | Name      | Description                                                                | Suggested automatic management                                                                                                                                 |
+|----|-----------|----------------------------------------------------------------------------|----------------------------------------------------------------------------------------------------------------------------------------------------------------|
+| -1 | UNREAD    | User has not opened the message                                            | Set by server on receipt, removed by client when the user opens the message                                                                                    |
+| -2 | RESPONDED | User has responded to the message                                          | Set by client when sending a message in response to the tagged message                                                                                         |
+| -3 | IMPORTANT | The message has been flagged as important                                  | May be set by some implementation-defined metric by the client or server, though typically managed manually by the user                                        |
+| -4 | TRASH     | The message has been staged for deletion, but has not yet been deleted     | Client can default to setting this tag instead of deleting a message when requested by the user, server may use this flag to inform automatic message deletion |
+| -5 | OUTBOX    | The message was sent using a SEND_\* or UPLOAD command                     | Set based on the source of the message                                                                                                                         |
+| -6 | DRAFT     | The message was sent using an UPLOAD command with the intent to edit later | Client may set this tag to save user drafts to the server and distinguish them from other uploads                                                              |
+| -7 | FORWARDED | The message has been forwarded to another server                           | Set on a recieved message when that message is then forwarded                                                                                                  |
+| -8 | JUNK      | The message is junk mail or otherwise highly unimportany                   | Typically set by some implementation-defined metric by the client or server, though may be managed manually by the user                                        |
+| -9 | SUSPICOUS | The message contains suspicious content, such as phishing attempts         | Typically set by some implementation-defined metric by the client or server, though may be managed manually by the user                                        |
+
+Users can also define their own tags, which are assigned to positive IDs by the server.
 
 ### MESSAGE_TAG
 
+THe MESSAGE_TAG Collection is a set of [Message ID, Tag ID] pairs indicating tags present on a message.
+
+When determining the MESSAGE_TAG Collection State, this list MUST be considered unordered.
+Duplicate values MUST NOT appear in this list.
+
+When messages or tags are deleted, any MESSAGE_TAG entries referencing them SHOULD be removed.
+
 ### METADATA
+
+The METADATA Collection is a map from Message IDs to Metadata Maps.
+
+When determining the METADATA Collection State, this list MUST be considered unordered.
+The Metadata Map keys MUST be considered unordered, and SHOULD NOT contain duplicates.
+
+Metadata Map keys are integers or strings. Integer values between 0 and 127 inclusive are reserved for definition within the rnmmp specification.
+
+| ID | Name         | Type      | Description                              |
+|----|--------------|-----------|------------------------------------------|
+| 0  | RECIEVE_TIME | Timestamp | The time the server recieved the message |
 
 ## Request types
 
@@ -287,19 +340,21 @@ the server MAY opt to return a `NO` response with `GENERAL_ERROR` = `UNSUPPORTED
 | 10   | FETCH_FIELDS       | Fetch the Fields portion of stored LXMF messages                                                  |
 | 11   | FETCH_TIMESTAMP    | Fetch the Timestamp portion of stored LXMF messages                                               |
 | 12   | FETCH_TITLE        | Fetch the Title portion of stored LXMF messages                                                   |
-| 13   | SEARCH_TITLE       | Search LXMF messages by the Title portion                                                         |
-| 14   | SEARCH_CONTENT     | Search messages by the Content portion                                                            |
-| 15   | UPLOAD             | Add messages to the Mail List Collection manually outside of the built-in delivery mechanism      |
-| 16   | DELETE             | Remove messages from the Mail List Collection                                                     |
-| 17   | CREATE_TAG         | Add named tags to the Tag List Collection                                                         |
-| 18   | DELETE_TAG         | Remove named tags from the Tag List Collection                                                    |
-| 19   | RENAME_TAG         | Rename tags in the Tag List Collection                                                            |
-| 20   | ADD_TAG            | Add tags to Message Tag Collection                                                                |
-| 21   | REMOVE_TAG         | Remove tags from the Message Tag Collection                                                       |
-| 22   | SET_METADATA       | Add entries to items in the Metadata Collection                                                   |
-| 23   | REMOVE_METADATA    | Remove entries from items in the Metadata Collection                                              |
-| 24   | SEND_RAW           | Send a raw message from the server to another destination                                         |
-| 25   | SEND_LXMF          | Send an LXMF message from the server to another destination                                       |
+| 13   | FETCH_TAGS         | Fetch the Tags present on messages                                                                |
+| 14   | FETCH_METADATA     | Fetch the Metadata present on messages                                                            |
+| 15   | SEARCH_TITLE       | Search LXMF messages by the Title portion                                                         |
+| 16   | SEARCH_CONTENT     | Search messages by the Content portion                                                            |
+| 17   | UPLOAD             | Add messages to the Mail List Collection manually outside of the built-in delivery mechanism      |
+| 18   | DELETE             | Remove messages from the Mail List Collection                                                     |
+| 19   | CREATE_TAG         | Add named tags to the Tag List Collection                                                         |
+| 20   | DELETE_TAG         | Remove named tags from the Tag List Collection                                                    |
+| 21   | RENAME_TAG         | Rename tags in the Tag List Collection                                                            |
+| 22   | ADD_TAG            | Add tags to Message Tag Collection                                                                |
+| 23   | REMOVE_TAG         | Remove tags from the Message Tag Collection                                                       |
+| 24   | SET_METADATA       | Add entries to items in the Metadata Collection                                                   |
+| 25   | REMOVE_METADATA    | Remove entries from items in the Metadata Collection                                              |
+| 26   | SEND_RAW           | Send a raw message from the server to another destination                                         |
+| 27   | SEND_LXMF          | Send an LXMF message from the server to another destination                                       |
 
 
 Further details in the subsections below.
@@ -352,7 +407,7 @@ Indicate that the client would like to receive active updates regarding a Collec
 
 | Code | Name                | Description                                                                                                        |
 |------|---------------------|--------------------------------------------------------------------------------------------------------------------|
-| 0    | UNKNOWN_COLLECTION  | Server does not have a Collection with the requested ID                                                            |
+| 0    | UNKNOWN_COLLECTION  | Server does not have a Collection with the requested id                                                            |
 | 1    | UNKNOWN_DESTINATION | Server refuses to send LXMF notifications to the requested Destination because it does not recognize it as trusted |
 | 2    | NO_PASSIVE_NOTIFS   | Server refuses to send LXMF notifications, only supporting notifications over an active link                       |
 | 3    | REFUSED             | Server refuses to send notifications as requested for unspecified/other reasons                                    |
@@ -388,7 +443,7 @@ List active subscriptions for Single Mode destinations.
 
 | Index | Name        | Type               | Optional? | Description                                                                                                             |
 |-------|-------------|--------------------|-----------|-------------------------------------------------------------------------------------------------------------------------|
-| 0     | Subscribers | List[[Int, Bytes]] | No        | A list of [Collection ID, Reticulum Destination] pairs for currently active Single Mode COLLECTION_UPDATE Notifications |
+| 0     | Subscribers | List[[Int, Bytes]] | No        | A list of [Collection id, Reticulum Destination] pairs for currently active Single Mode COLLECTION_UPDATE Notifications |
 
 ### SYNC
 
@@ -398,7 +453,7 @@ Get the delta for a Collection from a given State Token
 
 | Index | Name             | Type  | Optional? | Description                                                                              |
 |-------|------------------|-------|-----------|------------------------------------------------------------------------------------------|
-| 0     | Collection ID    | Int   | No        | The ID of the Collection to request a Delta for                                          |
+| 0     | Collection id    | Int   | No        | The id of the Collection to request a Delta for                                          |
 | 1     | Last Known State | Bytes | No        | The client's last known State Token for the Collection, for a delta to be generated from |
 
 **Return Parameters**
@@ -411,7 +466,7 @@ Get the delta for a Collection from a given State Token
 
 | Code | Name                | Description                                                                                                                |
 |------|---------------------|----------------------------------------------------------------------------------------------------------------------------|
-| 0    | UNKNOWN_COLLECTION  | Server does not have a Collection with the requested ID                                                                    |
+| 0    | UNKNOWN_COLLECTION  | Server does not have a Collection with the requested id                                                                    |
 | 1    | UNKNOWN_STATE       | Server cannot generate a delta from the given state to the current state. Client SHOULD retry with the Initial State Token |
 
 The exact format of the Delta Return Parameter depends on the Collection type.
@@ -423,7 +478,7 @@ Each key's value is a list of Message IDs,
 where ADDED is a complete list of messages that did not exist in the Last Known State but now do,
 and DELETED is a complete list of messages that existed in the Last Known State but now do not.
 
-A Message ID MUST NOT appear in both the ADDED and DELETED list.
+A Message id MUST NOT appear in both the ADDED and DELETED list.
 I.e., if a message was added and then deleted since the Last Known State, it should not appear in the delta.
 
 Messages that have the same existence state as the Last Known State MUST NOT appear.
@@ -436,7 +491,7 @@ For tags that have been deleted since the Last Known State, the value is `nil`.
 
 Intermediary states MUST NOT be represented.
 I.e., if a tag is renamed multiple times, only the current name is shown;
-and if a tag is deleted and a new tag with the same ID is created, the Delta is shown the same as if the tag was renamed.
+and if a tag is deleted and a new tag with the same id is created, the Delta is shown the same as if the tag was renamed.
 
 Tag IDs that have the same name as in the Last Known State MUST NOT appear.
 
@@ -652,6 +707,10 @@ Fetch responses can be large.
 A server MAY refuse a request that selects too many messages, or whose response would be too large,
 with a `NO` response and `GENERAL_ERROR` = `TOO_LARGE`; a client SHOULD then retry with fewer ids.
 The server SHOULD utilize Reticulum Resources for large responses.
+
+### FETCH_TAGS
+
+### FETCH_METADATA
 
 ### SEARCH_TITLE
 
