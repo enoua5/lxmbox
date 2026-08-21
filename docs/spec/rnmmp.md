@@ -214,7 +214,7 @@ Extensions MAY use integers outside of this range for other Collections.
 Note that message *content* is immutable.
 A client's stored mailbox state does not need to include it.
 
-The  `METADATA` Collection is keyed by ids from the `MAIL_LIST` Collection,
+The `METADATA` Collection is keyed by ids from the `MAIL_LIST` Collection,
 and the `MESSAGE_TAG` Collection is keyed by ids from the `MAIL_LIST` and `TAG_LIST` Collections.
 The client MUST tolerate items in these Collections referring to ids not known to exist in other Collections.
 
@@ -264,9 +264,9 @@ When determining the MAIL_LIST Collection State, this list MUST be considered un
 Duplicate values MUST NOT appear in this list.
 
 For LXMF messages, the id value SHOULD be the LXMF message-id.
-Identical LXMD messages SHOULD be considered the same message.
+Identical LXMF messages SHOULD be considered the same message.
 
-For non-LXMF messages, the id SHOULD be a univerally unique id such as UUID.
+For non-LXMF messages, the id SHOULD be a universally unique id such as UUID.
 The server MAY deduplicate identical non-LXMF messages, in which case the id MAY be derived from the text.
 
 ### TAG_LIST
@@ -281,23 +281,23 @@ See the table below for a list of these standard tags.
 Many of these standard tags are intended to be managed by the server and client automatically
 to track basic information about a message.
 
-| ID | Name      | Description                                                                | Suggested automatic management                                                                                                                                 |
-|----|-----------|----------------------------------------------------------------------------|----------------------------------------------------------------------------------------------------------------------------------------------------------------|
-| -1 | UNREAD    | User has not opened the message                                            | Set by server on receipt, removed by client when the user opens the message                                                                                    |
-| -2 | RESPONDED | User has responded to the message                                          | Set by client when sending a message in response to the tagged message                                                                                         |
-| -3 | IMPORTANT | The message has been flagged as important                                  | May be set by some implementation-defined metric by the client or server, though typically managed manually by the user                                        |
-| -4 | TRASH     | The message has been staged for deletion, but has not yet been deleted     | Client can default to setting this tag instead of deleting a message when requested by the user, server may use this flag to inform automatic message deletion |
-| -5 | OUTBOX    | The message was sent using a SEND_\* or UPLOAD command                     | Set based on the source of the message                                                                                                                         |
-| -6 | DRAFT     | The message was sent using an UPLOAD command with the intent to edit later | Client may set this tag to save user drafts to the server and distinguish them from other uploads                                                              |
-| -7 | FORWARDED | The message has been forwarded to another server                           | Set on a recieved message when that message is then forwarded                                                                                                  |
-| -8 | JUNK      | The message is junk mail or otherwise highly unimportany                   | Typically set by some implementation-defined metric by the client or server, though may be managed manually by the user                                        |
-| -9 | SUSPICOUS | The message contains suspicious content, such as phishing attempts         | Typically set by some implementation-defined metric by the client or server, though may be managed manually by the user                                        |
+| ID | Name       | Description                                                                    | Suggested automatic management                                                                                                                                 |
+|----|------------|--------------------------------------------------------------------------------|----------------------------------------------------------------------------------------------------------------------------------------------------------------|
+| -1 | UNREAD     | User has not opened the message                                                | Set by server on receipt, removed by client when the user opens the message                                                                                    |
+| -2 | RESPONDED  | User has responded to the message                                              | Set by client when sending a message in response to the tagged message                                                                                         |
+| -3 | IMPORTANT  | The message has been flagged as important                                      | May be set by some implementation-defined metric by the client or server, though typically managed manually by the user                                        |
+| -4 | TRASH      | The message has been staged for deletion, but has not yet been deleted         | Client can default to setting this tag instead of deleting a message when requested by the user, server may use this flag to inform automatic message deletion |
+| -5 | OUTBOX     | The message was sent using a SEND_\* or UPLOAD command                         | Set based on the source of the message                                                                                                                         |
+| -6 | DRAFT      | The message was uploaded using an UPLOAD command with the intent to edit later | Client may set this tag to save user drafts to the server and distinguish them from other uploads                                                              |
+| -7 | FORWARDED  | The message has been forwarded to another server                               | Set on a received message when that message is then forwarded                                                                                                  |
+| -8 | JUNK       | The message is junk mail or otherwise highly unimportant                       | Typically set by some implementation-defined metric by the client or server, though may be managed manually by the user                                        |
+| -9 | SUSPICIOUS | The message contains suspicious content, such as phishing attempts             | Typically set by some implementation-defined metric by the client or server, though may be managed manually by the user                                        |
 
 Users can also define their own tags, which are assigned to positive IDs by the server.
 
 ### MESSAGE_TAG
 
-THe MESSAGE_TAG Collection is a set of [Message ID, Tag ID] pairs indicating tags present on a message.
+The MESSAGE_TAG Collection is a set of [Message ID, Tag ID] pairs indicating tags present on a message.
 
 When determining the MESSAGE_TAG Collection State, this list MUST be considered unordered.
 Duplicate values MUST NOT appear in this list.
@@ -308,14 +308,14 @@ When messages or tags are deleted, any MESSAGE_TAG entries referencing them SHOU
 
 The METADATA Collection is a map from Message IDs to Metadata Maps.
 
-When determining the METADATA Collection State, this list MUST be considered unordered.
+When determining the METADATA Collection State, this map MUST be considered unordered.
 The Metadata Map keys MUST be considered unordered, and SHOULD NOT contain duplicates.
 
-Metadata Map keys are integers or strings. Integer values between 0 and 127 inclusive are reserved for definition within the rnmmp specification.
+Metadata Map keys are integers or strings. Integer keys between 0 and 127 inclusive are reserved for definition within the rnmmp specification.
 
 | ID | Name         | Type      | Description                              |
 |----|--------------|-----------|------------------------------------------|
-| 0  | RECIEVE_TIME | Timestamp | The time the server recieved the message |
+| 0  | RECEIVE_TIME | Timestamp | The time the server received the message |
 
 ## Request types
 
