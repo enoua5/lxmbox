@@ -31,7 +31,7 @@ This is essentially the *inverse* of the problem we are hoping to solve.
 
 #### Why not IMAP?
 
-[The Internet Mail Access Protocol (IMAP)](https://www.rfc-editor.org/info/rfc9051/) is a tried-and-trusted protocol for managing a mailbox over the internet. It uses a simple text-based API, and is flexible in its link and authentication requirements.
+[The Internet Message Access Protocol (IMAP)](https://www.rfc-editor.org/info/rfc9051/) is a tried-and-trusted protocol for managing a mailbox over the internet. It uses a simple text-based API, and is flexible in its link and authentication requirements.
 
 It is entirely reasonable that we could carry IMAP over Reticulum and implement an extension to `AUTHENTICATE` that uses the built-in Reticulum link authentication. I do not think this is a *bad* solution, and you may want to consider the possibility of modifying an existing IMAP server to have these capabilities if you want the security of using server software that's had far more field testing than rnmmp.
 
@@ -114,11 +114,11 @@ This value MUST be the same as the one included in the request.
 
 The second parameter is the status code:
 
-| Status        | Code | Description                                                                    |
-|---------------|------|--------------------------------------------------------------------------------|
-| OK            | 0    | The action was performed                                                       |
-| NO            | 1    | The request was understood, but was either ignored or an error was encountered |
-| BAD           | 2    | The request was not understood                                                 |
+| Status | Code | Description                                                                    |
+|--------|------|--------------------------------------------------------------------------------|
+| OK     | 0    | The action was performed                                                       |
+| NO     | 1    | The request was understood, but was either ignored or an error was encountered |
+| BAD    | 2    | The request was not understood                                                 |
 
 For the OK status, zero or more additional Return Parameters are REQUIRED as defined for the Request Type.
 
@@ -176,16 +176,16 @@ in the error information map returned in a NO/BAD Response.
 
 Values for the `GENERAL_ERROR` key in error information
 
-| Code | Name               | Description                                                                                    |
-|------|--------------------|------------------------------------------------------------------------------------------------|
-| 0    | UNAUTHENTICATED    | MAY be returned to an unauthenticated client instead of silently ignoring a request            |
-| 1    | UNAUTHORIZED       | MAY be returned to a client with an unexpected identity instead of silently ignoring a request |
-| 2    | INCOMPLETE         | Request is missing required information                                                        |
-| 3    | WRONG_TYPE         | A Request included a field with an unexpected datatype                                         |
-| 4    | UNSUPPORTED        | The server understands the request, but has not implemented the functionality                  |
-| 5    | TOO_LARGE          | The server refuses to process the request because it exceeds size limits or storage space      |
-| 6    | SERVER_ERROR       | The server encountered an error while processing the request and could not continue            |
-| 7    | STATE_MISMATCH     | The client expected the mailbox to be in a state it was not found to be in                     |
+| Code | Name            | Description                                                                                    |
+|------|-----------------|------------------------------------------------------------------------------------------------|
+| 0    | UNAUTHENTICATED | MAY be returned to an unauthenticated client instead of silently ignoring a request            |
+| 1    | UNAUTHORIZED    | MAY be returned to a client with an unexpected identity instead of silently ignoring a request |
+| 2    | INCOMPLETE      | Request is missing required information                                                        |
+| 3    | WRONG_TYPE      | A Request included a field with an unexpected datatype                                         |
+| 4    | UNSUPPORTED     | The server understands the request, but has not implemented the functionality                  |
+| 5    | TOO_LARGE       | The server refuses to process the request because it exceeds size limits or storage space      |
+| 6    | SERVER_ERROR    | The server encountered an error while processing the request and could not continue            |
+| 7    | STATE_MISMATCH  | The client expected the mailbox to be in a state it was not found to be in                     |
 
 ## Mailbox state
 
@@ -197,19 +197,19 @@ Whenever a Collection's state is updated, the server MUST create a new State Tok
 State Tokens are to be interpreted as opaque and MUST NOT be parsed by the client; only used raw.
 
 The zero-length byte array (msgpack `0xC4 0x00`) is reserved to represent the "Initial State".
-A client can use the Initial State Token as its last known State Token to indicate that they
-require the full current state of the Collection, rather than the delta from some known state.
+A client can use the Initial State Token as its last known State Token to indicate that it
+requires the full current state of the Collection, rather than the delta from some known state.
 
 Collections are represented by integers.
 The integers 0-127 inclusive are reserved for standard Collections.
 Extensions MAY use integers outside of this range for other Collections.
 
-| Collection name | Code | Description                                                  |
-|-----------------|------|--------------------------------------------------------------|
-| MAIL_LIST       | 0    | The list of messages in the mailbox                          |
-| TAG_LIST        | 1    | The list of tag names defined in the mailbox                 |
-| MESSAGE_TAG     | 2    | The list of tags applied to each message in the mailbox      |
-| METADATA        | 3    | The non-tag metadata for each message in the mailbox         |
+| Collection name | Code | Description                                             |
+|-----------------|------|---------------------------------------------------------|
+| MAIL_LIST       | 0    | The list of messages in the mailbox                     |
+| TAG_LIST        | 1    | The list of tag names defined in the mailbox            |
+| MESSAGE_TAG     | 2    | The list of tags applied to each message in the mailbox |
+| METADATA        | 3    | The non-tag metadata for each message in the mailbox    |
 
 Note that message *content* is immutable.
 A client's stored mailbox state does not need to include it.
@@ -331,7 +331,7 @@ Numbers outside of this range MAY be used for implementation-defined request typ
 The following request types SHOULD be supported by the server;
 the server MAY opt to return a `NO` response with `GENERAL_ERROR` = `UNSUPPORTED` for any request.
 
-| Code | Name              | Description (see subsections for specification)                                                    |
+| Code | Name               | Description (see subsections for specification)                                                   |
 |------|--------------------|---------------------------------------------------------------------------------------------------|
 | 0    | NOOP               | No action to be performed, MAY be sent periodically to keep a link alive                          |
 | 1    | CAPABILITY         | Fetch information about the server's supported features                                           |
@@ -350,21 +350,20 @@ the server MAY opt to return a `NO` response with `GENERAL_ERROR` = `UNSUPPORTED
 | 14   | FETCH_METADATA     | Fetch the Metadata present on messages                                                            |
 | 15   | SEARCH_TITLE       | Search LXMF messages by the Title portion                                                         |
 | 16   | SEARCH_CONTENT     | Search messages by the Content portion                                                            |
-| 17   | UPLOAD             | Add messages to the Mail List Collection manually outside of the built-in delivery mechanism      |
-| 18   | DELETE             | Remove messages from the Mail List Collection                                                     |
-| 19   | CREATE_TAG         | Add named tags to the Tag List Collection                                                         |
-| 20   | DELETE_TAG         | Remove named tags from the Tag List Collection                                                    |
-| 21   | RENAME_TAG         | Rename tags in the Tag List Collection                                                            |
-| 22   | ADD_TAG            | Add tags to Message Tag Collection                                                                |
-| 23   | REMOVE_TAG         | Remove tags from the Message Tag Collection                                                       |
-| 24   | SET_METADATA       | Add entries to items in the Metadata Collection                                                   |
-| 25   | REMOVE_METADATA    | Remove entries from items in the Metadata Collection                                              |
+| 17   | UPLOAD             | Add messages to the MAIL_LIST Collection manually outside of the built-in delivery mechanism      |
+| 18   | DELETE             | Remove messages from the MAIL_LIST Collection                                                     |
+| 19   | CREATE_TAG         | Add named tags to the TAG_LIST Collection                                                         |
+| 20   | DELETE_TAG         | Remove named tags from the TAG_LIST Collection                                                    |
+| 21   | RENAME_TAG         | Rename tags in the TAG_LIST Collection                                                            |
+| 22   | ADD_TAG            | Add tags to MESSAGE_TAG Collection                                                                |
+| 23   | REMOVE_TAG         | Remove tags from the MESSAGE_TAG Collection                                                       |
+| 24   | SET_METADATA       | Add entries to items in the METADATA Collection                                                   |
+| 25   | REMOVE_METADATA    | Remove entries from items in the METADATA Collection                                              |
 | 26   | SEND_RAW           | Send a raw message from the server to another destination                                         |
 | 27   | SEND_LXMF          | Send an LXMF message from the server to another destination                                       |
 
-
 Further details in the subsections below.
-Each section might define tables for their Keyed Parameters,
+Each section might define tables for its Keyed Parameters,
 Positional Parameters, Return Parameters, and Specific Error Codes.
 Any of these tables missing from a subsection indicates that the
 corresponding information is expected to be unused/empty.
@@ -381,7 +380,7 @@ Request a list of optional features and extensions the server supports.
 
 | Index | Name            | Type                                  | Optional? | Description                               |
 |-------|-----------------|---------------------------------------|-----------|-------------------------------------------|
-| 0     | Capability List | list[int OR str OR [int OR str, map]] | No        | The optional features the server supports |
+| 0     | Capability List | List[Int OR Str OR [Int OR Str, Map]] | No        | The optional features the server supports |
 
 #### Capability list
 
@@ -406,7 +405,7 @@ Indicate that the client would like to receive active updates regarding a Collec
 
 | Index | Name        | Type  | Optional? | Description                                                  |
 |-------|-------------|-------|-----------|--------------------------------------------------------------|
-| 0     | Collection  | Int   | No        | The collection to subscribe to updates for                   |
+| 0     | Collection  | Int   | No        | The Collection to subscribe to updates for                   |
 | 1     | Destination | Bytes | Yes       | A Reticulum Destination to send LXMF Update Notifications to |
 
 **Specific Error Codes**
@@ -419,7 +418,7 @@ Indicate that the client would like to receive active updates regarding a Collec
 | 3    | REFUSED             | Server refuses to send notifications as requested for unspecified/other reasons                                    |
 
 If accepted, the server SHOULD begin to send COLLECTION_UPDATE Notifications whenever the State Token for the specified Collection changes.
-The server MAY delay sending COLLECTION_UPDATE Notifications in order to "batch" multiple and send singular updates for settled state.
+The server MAY delay sending COLLECTION_UPDATE Notifications in order to "batch" multiple changes and send a single update for settled state.
 
 If Destination is specified, these notifications will be sent in Single mode as LXMF to the specified Reticulum Destination.
 
@@ -429,14 +428,14 @@ If Destination is not specified, notifications will be sent to the client making
 
 ### UNSUBSCRIBE
 
-Indicate that the client would like to stop receiving active updates regarding a Collection state
+Indicate that the client would like to stop receiving active updates regarding a Collection state.
 
 **Positional Parameters**
 
-| Index | Name        | Type  | Optional? | Description                                                  |
-|-------|-------------|-------|-----------|--------------------------------------------------------------|
-| 0     | Collection  | Int   | No        | The collection to unsubscribe from updates for               |
-| 1     | Destination | Bytes | Yes       | A Reticulum Destination where notifications were being sent  |
+| Index | Name        | Type  | Optional? | Description                                                 |
+|-------|-------------|-------|-----------|-------------------------------------------------------------|
+| 0     | Collection  | Int   | No        | The Collection to unsubscribe from updates for              |
+| 1     | Destination | Bytes | Yes       | A Reticulum Destination where notifications were being sent |
 
 Request to stop receiving COLLECTION_UPDATE Notifications requested via the SUBSCRIBE command.
 Positional parameters are understood the same as with the SUBSCRIBE command.
@@ -453,7 +452,7 @@ List active subscriptions for Single Mode destinations.
 
 ### SYNC
 
-Get the delta for a Collection from a given State Token
+Get the delta for a Collection from a given State Token.
 
 **Positional Parameters**
 
@@ -466,14 +465,14 @@ Get the delta for a Collection from a given State Token
 
 | Index | Name  | Type | Optional? | Description                                                                                 |
 |-------|-------|------|-----------|---------------------------------------------------------------------------------------------|
-| 0     | Delta | Map  | No        | Structured details about the changes to the collection since the specified Last Known State |
+| 0     | Delta | Map  | No        | Structured details about the changes to the Collection since the specified Last Known State |
 
 **Specific Error Codes**
 
-| Code | Name                | Description                                                                                                                |
-|------|---------------------|----------------------------------------------------------------------------------------------------------------------------|
-| 0    | UNKNOWN_COLLECTION  | Server does not have a Collection with the requested id                                                                    |
-| 1    | UNKNOWN_STATE       | Server cannot generate a delta from the given state to the current state. Client SHOULD retry with the Initial State Token |
+| Code | Name               | Description                                                                                                                |
+|------|--------------------|----------------------------------------------------------------------------------------------------------------------------|
+| 0    | UNKNOWN_COLLECTION | Server does not have a Collection with the requested id                                                                    |
+| 1    | UNKNOWN_STATE      | Server cannot generate a delta from the given state to the current state. Client SHOULD retry with the Initial State Token |
 
 The exact format of the Delta Return Parameter depends on the Collection type.
 
@@ -484,7 +483,7 @@ Each key's value is a list of Message IDs,
 where ADDED is a complete list of messages that did not exist in the Last Known State but now do,
 and DELETED is a complete list of messages that existed in the Last Known State but now do not.
 
-A Message id MUST NOT appear in both the ADDED and DELETED list.
+A Message id MUST NOT appear in both the ADDED and DELETED lists.
 I.e., if a message was added and then deleted since the Last Known State, it should not appear in the delta.
 
 Messages that have the same existence state as the Last Known State MUST NOT appear.
@@ -503,7 +502,7 @@ Tag IDs that have the same name as in the Last Known State MUST NOT appear.
 
 #### MESSAGE_TAG Delta
 
-The MESSAGE_TAG Delta uses Message IDs as keys, and includes information about the Message's current tags as the value.
+The MESSAGE_TAG Delta uses Message IDs as keys, and includes information about the message's current tags as the value.
 For messages that have had tags added or removed, the value is the list of current Tag IDs.
 For messages that have been deleted, the value is `nil`.
 
@@ -538,9 +537,9 @@ Fetch raw stored messages including all LXMF headers.
 
 **Return Parameters**
 
-| Index | Name     | Type               | Optional? | Description                                                                                           |
-|-------|----------|--------------------|-----------|-------------------------------------------------------------------------------------------------------|
-| 0     | Messages | List[Bytes OR nil] | No        | The messages, returned in the same order requested. For messages that aren't found, `nil` is returned |
+| Index | Name     | Type               | Optional? | Description                                                                                            |
+|-------|----------|--------------------|-----------|--------------------------------------------------------------------------------------------------------|
+| 0     | Messages | List[Bytes OR nil] | No        | The messages, returned in the same order requested. For messages that aren't found, `nil` is returned. |
 
 The Messages Return Parameter is a list of raw message data returned byte-for-byte as delivered.
 The server MUST return `nil` for any requested id that does not exist in the MAIL_LIST Collection.
@@ -566,7 +565,7 @@ Fetch the Destination, Source, and Signature fields of stored LXMF messages.
 |-------|----------|--------------------|-----------|---------------------------------------------------------------------------------------------------------------|
 | 0     | Messages | List[Bytes OR nil] | No        | The message headers, returned in the same order requested. For messages that aren't found, `nil` is returned. |
 
-The Messages Return Parameter is a list of each message's header as a Bytes value;
+The Messages Return Parameter is a list of each message's header as a Bytes value,
 containing the Destination, Source, and Signature portions of the LXMF message:
 
 | Index | Name        | Type  | Description                                  |
@@ -784,7 +783,7 @@ Search LXMF messages by the Title portion.
 |-----|--------------|-----------|-----------|----------------------------------------------------------------|
 | 0   | MAX_RESULTS  | Int       | Yes       | The maximum number of Message IDs the client wishes to receive |
 | 1   | ONLY_TAGS    | List[Int] | Yes       | Filter results to messages with the specified tag IDs          |
-| 2   | EXCLUDE_TAGS | List[Int] | Yes       | Filter resilts to messages without the specified tag IDs       |
+| 2   | EXCLUDE_TAGS | List[Int] | Yes       | Filter results to messages without the specified tag IDs       |
 
 **Return Parameters**
 
@@ -794,9 +793,9 @@ Search LXMF messages by the Title portion.
 
 **Specific Error Codes**
 
-| Code | Name                 | Description                                                                                                        |
-|------|----------------------|----------------------------------------------------------------------|
-| 0    | CONFLICTING_FILTERS  | The client specified the same tag in both ONLY_TAGS and EXCLUDE_TAGS |
+| Code | Name                | Description                                                          |
+|------|---------------------|----------------------------------------------------------------------|
+| 0    | CONFLICTING_FILTERS | The client specified the same tag in both ONLY_TAGS and EXCLUDE_TAGS |
 
 The matching semantics are implementation-defined, but a server SHOULD at minimum perform a case-insensitive substring match.
 The order of the returned ids is unspecified.
@@ -804,8 +803,9 @@ If MAX_RESULTS is given, the server MUST NOT return more than that many ids;
 which matches are dropped when results are truncated is implementation-defined.
 A server MAY additionally limit result counts, and MAY return `NO` with `GENERAL_ERROR` = `TOO_LARGE` instead of truncating.
 
-If ONLY_TAGS is set, the server MUST NOT return any Message IDs which do not have the specified tags set.
-If EXCLUDE_TAGS is set, the server MUST NOT return any Message IDs which have the specified tags set.
+If ONLY_TAGS is set, the server MUST NOT return any Message ID that does not have *every* specified tag set.
+If EXCLUDE_TAGS is set, the server MUST NOT return any Message ID that has *any* specified tag set.
+A message must therefore carry all of ONLY_TAGS and none of EXCLUDE_TAGS to be returned.
 
 ### SEARCH_CONTENT
 
@@ -819,9 +819,11 @@ Search messages by the Content portion.
 
 **Keyed Parameters**
 
-| Key | Name        | Type | Optional? | Description                                                    |
-|-----|-------------|------|-----------|----------------------------------------------------------------|
-| 0   | MAX_RESULTS | Int  | Yes       | The maximum number of Message IDs the client wishes to receive |
+| Key | Name         | Type      | Optional? | Description                                                    |
+|-----|--------------|-----------|-----------|----------------------------------------------------------------|
+| 0   | MAX_RESULTS  | Int       | Yes       | The maximum number of Message IDs the client wishes to receive |
+| 1   | ONLY_TAGS    | List[Int] | Yes       | Filter results to messages with the specified tag IDs          |
+| 2   | EXCLUDE_TAGS | List[Int] | Yes       | Filter results to messages without the specified tag IDs       |
 
 **Return Parameters**
 
@@ -829,11 +831,21 @@ Search messages by the Content portion.
 |-------|-------------|-------------|-----------|-----------------------------------------------------|
 | 0     | Message IDs | List[Bytes] | No        | The ids of messages whose Content matches the Query |
 
+**Specific Error Codes**
+
+| Code | Name                | Description                                                          |
+|------|---------------------|----------------------------------------------------------------------|
+| 0    | CONFLICTING_FILTERS | The client specified the same tag in both ONLY_TAGS and EXCLUDE_TAGS |
+
 The matching semantics are implementation-defined, but a server SHOULD at minimum perform a case-insensitive substring match.
 The order of the returned ids is unspecified.
 If MAX_RESULTS is given, the server MUST NOT return more than that many ids;
 which matches are dropped when results are truncated is implementation-defined.
 A server MAY additionally limit result counts, and MAY return `NO` with `GENERAL_ERROR` = `TOO_LARGE` instead of truncating.
+
+If ONLY_TAGS is set, the server MUST NOT return any Message ID that does not have *every* specified tag set.
+If EXCLUDE_TAGS is set, the server MUST NOT return any Message ID that has *any* specified tag set.
+A message must therefore carry all of ONLY_TAGS and none of EXCLUDE_TAGS to be returned.
 
 If non-LXMF messages are present in the mailbox, non-LXMF messages SHOULD be searched by full text.
 
@@ -841,7 +853,7 @@ If non-LXMF messages are present in the mailbox, non-LXMF messages SHOULD be sea
 
 This request updates state. See section "Mailbox state".
 
-Add messages to the Mail List Collection manually, outside of the built-in delivery mechanism.
+Add messages to the MAIL_LIST Collection manually as memos, outside of the built-in delivery mechanism.
 This can be used to manage items such as drafts and notes that aren't intended to be sent as mail.
 
 **Keyed Parameters**
@@ -869,15 +881,20 @@ This can be used to manage items such as drafts and notes that aren't intended t
 
 | Code | Name         | Description                                                                       |
 |------|--------------|-----------------------------------------------------------------------------------|
-| 0    | UNKNOWN_TAG  | A Tag ID in TAGS does not exist in the Tag List Collection                        |
+| 0    | UNKNOWN_TAG  | A Tag ID in TAGS does not exist in the TAG_LIST Collection                        |
 | 1    | RESERVED_KEY | A METADATA key is one the server manages itself and does not accept from a client |
 
-The server MUST assign each stored message an id as described in the "MAIL_LIST" section.
+The server MUST store an uploaded message opaquely.
+It MUST NOT parse the message, and MUST NOT treat it as LXMF even if it would parse as LXMF.
+An uploaded message is therefore a non-LXMF message for every other purpose in this specification:
+it is assigned a universally unique id as described in the "MAIL_LIST" section,
+and the LXMF-specific fetch requests return `nil` for it.
 
-If an uploaded message is identical to one already present in the Mail List Collection, the server MAY choose whether to store an additional copy.
+If an uploaded message is identical to one already present in the MAIL_LIST Collection, the server MAY choose whether to store an additional copy.
+Because uploaded messages do not take their ids from their contents, an additional copy receives its own distinct id.
 If not storing an additional copy, it MUST return the existing id, and MUST still apply any supplied TAGS and METADATA to the existing message.
 
-An UPLOAD changes the MAIL_LSIT, MESSAGE_TAG, and METADATA Collections.
+An UPLOAD changes the MAIL_LIST, MESSAGE_TAG, and METADATA Collections.
 The server MAY set Metadata and Tags the client did not explicitly specify.
 As with any write, a Collection that did not actually change MUST NOT appear in the Updated States map.
 
@@ -906,16 +923,16 @@ Deletion is permanent and takes effect immediately.
 A client offering the user a recoverable delete SHOULD apply the TRASH tag instead,
 and commit the delete only when the user empties the trash or a predefined trigger condition is met.
 
-Deleting a message MUST also remove its entries from the Message Tag and Metadata Collections,
+Deleting a message MUST also remove its entries from the MESSAGE_TAG and METADATA Collections,
 changing those Collections' State Tokens accordingly.
 
-Deleting an id that is not present in the MAIL_LSIT Collection is not an error, and causes no state change.
+Deleting an id that is not present in the MAIL_LIST Collection is not an error, and causes no state change.
 
 ### CREATE_TAG
 
 This request updates state. See section "Mailbox state".
 
-Add named tags to the Tag List Collection.
+Add named tags to the TAG_LIST Collection.
 
 **Positional Parameters**
 
@@ -939,8 +956,8 @@ Add named tags to the Tag List Collection.
 The server MUST assign each newly created tag a positive integer id that is not in use by another tag.
 
 Tag names MUST be unique within a mailbox.
-If a supplied name is already in use— whether by a user-defined tag or by a Server-Defined Tag— the server MUST NOT create a second tag;
-It MUST return the existing tag's id, and that name causes no state change.
+If a supplied name is already in use — whether by a user-defined tag or by a Server-Defined Tag — the server MUST NOT create a second tag;
+it MUST return the existing tag's id, and that name causes no state change.
 How names are compared for uniqueness is implementation-defined,
 but a server SHOULD compare them case-insensitively.
 
@@ -948,7 +965,7 @@ but a server SHOULD compare them case-insensitively.
 
 This request updates state. See section "Mailbox state".
 
-Remove named tags from the Tag List Collection.
+Remove named tags from the TAG_LIST Collection.
 
 **Positional Parameters**
 
@@ -962,12 +979,12 @@ Remove named tags from the Tag List Collection.
 |------|--------------------|--------------------------------------------------|
 | 0    | SERVER_DEFINED_TAG | The request tried to delete a Server-Defined Tag |
 
-Server-Defined Tags— those with negative IDs— cannot be deleted by the client.
+Server-Defined Tags — those with negative IDs — cannot be deleted by the client.
 
-Deleting a tag MUST also remove every MESAGE_TAG Collection entry that references it,
+Deleting a tag MUST also remove every MESSAGE_TAG Collection entry that references it,
 changing that Collection's State Token accordingly.
 
-Deleting an id that is not present in the Tag List Collection is not an error, and causes no state change.
+Deleting an id that is not present in the TAG_LIST Collection is not an error, and causes no state change.
 
 A server MAY assign the id of a deleted tag to a tag created later.
 See the "TAG_LIST Delta" section for how a syncing client sees this.
@@ -995,7 +1012,7 @@ Rename tags in the TAG_LIST Collection.
 
 Renaming a tag to the name it currently has is not an error, and causes no state change.
 
-Renaming does not change a tag's id, so the MESSAGE_TAG collection is unchanged.
+Renaming does not change a tag's id, so the MESSAGE_TAG Collection is unchanged.
 
 ### ADD_TAG
 
@@ -1013,16 +1030,16 @@ Add tags to the MESSAGE_TAG Collection.
 
 | Code | Name            | Description                                                      |
 |------|-----------------|------------------------------------------------------------------|
-| 0    | UNKNOWN_MESSAGE | A supplied Message ID does not exist in the Mail List Collection |
-| 1    | UNKNOWN_TAG     | A supplied Tag ID does not exist in the Tag List Collection      |
+| 0    | UNKNOWN_MESSAGE | A supplied Message ID does not exist in the MAIL_LIST Collection |
+| 1    | UNKNOWN_TAG     | A supplied Tag ID does not exist in the TAG_LIST Collection      |
 
-Adding a tag a message that already has that tag is not an error, and causes no state change.
+Adding a tag to a message that already has that tag is not an error, and causes no state change.
 
 ### REMOVE_TAG
 
 This request updates state. See section "Mailbox state".
 
-Remove tags from the Message Tag Collection.
+Remove tags from the MESSAGE_TAG Collection.
 
 **Positional Parameters**
 
@@ -1034,8 +1051,8 @@ Remove tags from the Message Tag Collection.
 
 | Code | Name            | Description                                                      |
 |------|-----------------|------------------------------------------------------------------|
-| 0    | UNKNOWN_MESSAGE | A supplied Message ID does not exist in the Mail List Collection |
-| 1    | UNKNOWN_TAG     | A supplied Tag ID does not exist in the Tag List Collection      |
+| 0    | UNKNOWN_MESSAGE | A supplied Message ID does not exist in the MAIL_LIST Collection |
+| 1    | UNKNOWN_TAG     | A supplied Tag ID does not exist in the TAG_LIST Collection      |
 
 Removing a tag a message does not have is not an error, and causes no state change.
 
@@ -1045,7 +1062,7 @@ A tag remains in the TAG_LIST Collection even if not assigned to any message.
 
 This request updates state. See section "Mailbox state".
 
-Add entries to items in the Metadata Collection.
+Add entries to items in the METADATA Collection.
 
 **Positional Parameters**
 
@@ -1057,12 +1074,12 @@ Add entries to items in the Metadata Collection.
 
 | Code | Name            | Description                                                                               |
 |------|-----------------|-------------------------------------------------------------------------------------------|
-| 0    | UNKNOWN_MESSAGE | A supplied Message ID does not exist in the Mail List Collection                          |
+| 0    | UNKNOWN_MESSAGE | A supplied Message ID does not exist in the MAIL_LIST Collection                          |
 | 1    | RESERVED_KEY    | A supplied key is one the server manages itself and does not accept from a client         |
 | 2    | INVALID_KEY     | A supplied key is neither an integer nor a string, or is otherwise rejected by the server |
 
 Entries are merged into the message's existing Metadata Map.
-A key present in the request sets or replaces Metadata Map's current value.
+A key present in the request sets or replaces the Metadata Map's current value.
 A key not present in the request is left unchanged from the Metadata Map's current value.
 Setting a key to the value it already holds causes no state change.
 
@@ -1070,7 +1087,7 @@ Setting a key to the value it already holds causes no state change.
 
 This request updates state. See section "Mailbox state".
 
-Remove entries from items in the Metadata Collection.
+Remove entries from items in the METADATA Collection.
 
 **Positional Parameters**
 
@@ -1082,7 +1099,7 @@ Remove entries from items in the Metadata Collection.
 
 | Code | Name            | Description                                                                           |
 |------|-----------------|---------------------------------------------------------------------------------------|
-| 0    | UNKNOWN_MESSAGE | A supplied Message ID does not exist in the Mail List Collection                      |
+| 0    | UNKNOWN_MESSAGE | A supplied Message ID does not exist in the MAIL_LIST Collection                      |
 | 1    | RESERVED_KEY    | A supplied key is one the server manages itself and does not allow a client to remove |
 
 Removing a key not present in the Metadata Map is not an error, and causes no state change.
@@ -1099,7 +1116,7 @@ The server does not pack the message in LXMF or any other message format.
 **Keyed Parameters**
 
 | Key | Name        | Type              | Optional? | Description                                                             |
-|-----|-------------|-----------=-------|-----------|-------------------------------------------------------------------------|
+|-----|-------------|-------------------|-----------|-------------------------------------------------------------------------|
 | 0   | IF_IN_STATE | Map[Int -> Bytes] | Yes       | See section "Requests that mutate state"                                |
 | 1   | STORE       | Bool              | Yes       | Whether to store a copy of the message in the mailbox. Defaults to true |
 | 2   | TAGS        | List[Int]         | Yes       | Tag IDs to apply to the stored copy                                     |
@@ -1120,13 +1137,13 @@ The server does not pack the message in LXMF or any other message format.
 
 **Specific Error Codes**
 
-| Code | Name                | Description                                                  |
-|------|---------------------|--------------------------------------------------------------|
-| 0    | SEND_FAILED         | The server failed to deliver the message                     |
-| 1    | UNKNOWN_TAG         | A Tag ID in TAGS does not exist in the Tag List Collection   |
-| 2    | REFUSED             | The server refuses to transmit the message                   |
+| Code | Name        | Description                                                |
+|------|-------------|------------------------------------------------------------|
+| 0    | SEND_FAILED | The server failed to deliver the message                   |
+| 1    | UNKNOWN_TAG | A Tag ID in TAGS does not exist in the TAG_LIST Collection |
+| 2    | REFUSED     | The server refuses to transmit the message                 |
 
-Delivery over Reticulum may be asyncronous, and a server SHOULD NOT hold the Response open waiting for delivery.
+Delivery over Reticulum may be asynchronous, and a server SHOULD NOT hold the Response open waiting for delivery.
 An `OK` Response means the server has accepted the message for transmission; it does not mean the message has arrived.
 
 If a copy is stored, the server SHOULD apply the OUTBOX tag to it in addition to any supplied TAGS,
@@ -1139,7 +1156,7 @@ This request may update state. See section "Mailbox state".
 
 Send an LXMF message from the server to another destination.
 
-Requests that the server to construct, sign, and transmit an LXMF message using the mailbox's own identity as the source.
+Requests that the server construct, sign, and transmit an LXMF message using the mailbox's own identity as the source.
 This is how a client sends mail *as* the mailbox, as the mailbox's private key is held only by the server.
 
 **Keyed Parameters**
@@ -1152,12 +1169,12 @@ This is how a client sends mail *as* the mailbox, as the mailbox's private key i
 
 **Positional Parameters**
 
-| Index | Name        | Type   | Optional? | Description                                               |
-|-------|-------------|--------|-----------|-----------------------------------------------------------|
-| 0     | Destination | Bytes  | No        | The Reticulum Destination hash to transmit the message to |
-| 1     | Title       | Bytes  | No        | The Title portion of the message to construct             |
-| 2     | Content     | Bytes  | No        | The Content portion of the message to construct           |
-| 3     | Fields      | Map    | Yes       | The Fields portion of the message to construct            |
+| Index | Name        | Type  | Optional? | Description                                               |
+|-------|-------------|-------|-----------|-----------------------------------------------------------|
+| 0     | Destination | Bytes | No        | The Reticulum Destination hash to transmit the message to |
+| 1     | Title       | Bytes | No        | The Title portion of the message to construct             |
+| 2     | Content     | Bytes | No        | The Content portion of the message to construct           |
+| 3     | Fields      | Map   | Yes       | The Fields portion of the message to construct            |
 
 **Return Parameters**
 
@@ -1168,11 +1185,11 @@ This is how a client sends mail *as* the mailbox, as the mailbox's private key i
 
 **Specific Error Codes**
 
-| Code | Name                | Description                                                |
-|------|---------------------|------------------------------------------------------------|
-| 0    | SEND_FAILED         | The server failed to deliver the message                   |
-| 1    | UNKNOWN_TAG         | A Tag ID in TAGS does not exist in the Tag List Collection |
-| 2    | REFUSED             | The server refuses to send the message                     |
+| Code | Name        | Description                                                |
+|------|-------------|------------------------------------------------------------|
+| 0    | SEND_FAILED | The server failed to deliver the message                   |
+| 1    | UNKNOWN_TAG | A Tag ID in TAGS does not exist in the TAG_LIST Collection |
+| 2    | REFUSED     | The server refuses to send the message                     |
 
 The server MUST use the mailbox's own identity as the source of the message, and MUST sign it with that identity.
 The server sets the message's Timestamp.
