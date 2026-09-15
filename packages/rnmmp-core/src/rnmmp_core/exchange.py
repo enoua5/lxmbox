@@ -26,8 +26,8 @@ from dataclasses import dataclass, field
 from typing import Any, ClassVar, overload, override
 
 from ._utils import TypeSpec, TypeSpecTuple, assert_parameter_type
-from .codes import ExchangeType, NotificationType, RequestType, ResponseStatus
-from .errors import IncompleteRequestError, MalformedExchangeError, RnmmpError
+from .codes import ErrorInfoKey, ExchangeType, NotificationType, RequestType, ResponseStatus
+from .errors import _SPECIFIC_CODE_FOR, IncompleteRequestError, MalformedExchangeError, RnmmpError
 from .msgpack import pack, unpack
 
 __all__ = [
@@ -320,9 +320,22 @@ class Response(Exchange):
         return cls(request_id, ResponseStatus.OK, list(returns))
 
     @classmethod
-    def failure(cls, request_id: int, error: RnmmpError) -> Response:
-        """Build the `NO` or `BAD` Response reporting `error`"""
+    def failure(cls, request_id: int, error: RnmmpError, request_type: int | None = None) -> Response:
+        """
+        Build the `NO` or `BAD` Response reporting `error`.
+
+        Args:
+            request_id: The Request id being answered
+            error: The error to report
+            request_type: The request type being answered.
+                When given, and `error` carries no specific error code of its own, the code the
+                error's class represents for this request type is filled in.
+        """
         info = error.package_as_dict()
+        if request_type is not None and ErrorInfoKey.SPECIFIC_ERROR not in info:
+            code = _SPECIFIC_CODE_FOR.get((request_type, type(error)))
+            if code is not None:
+                info[ErrorInfoKey.SPECIFIC_ERROR] = code
         return cls(request_id, error.status, [info] if info else [])
 
     @property

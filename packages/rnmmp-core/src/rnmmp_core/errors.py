@@ -72,7 +72,8 @@ def _wrap_as_enum_value[E: int](value: Any, enum: type[E] | None) -> E | int | N
     Codes not present in the enum (i.e. from extensions) or with an unknown enum type
     are returned as a raw int
     """
-    if not isinstance(value, int):
+    # `bool` subclasses `int` in Python
+    if not isinstance(value, int) or isinstance(value, bool):
         return None
     if enum is None:
         return value
@@ -454,4 +455,13 @@ SPECIFIC_ERROR_TO_EXCEPTION: dict[tuple[int, int], type[RnmmpError]] = {
 }
 """
 Mapping from (request type, error code) pairings to an error class
+"""
+
+_SPECIFIC_CODE_FOR: dict[tuple[int, type[RnmmpError]], int] = {
+    (request_type, error_class): code for (request_type, code), error_class in SPECIFIC_ERROR_TO_EXCEPTION.items()
+}
+"""
+The inverse mapping: which specific error code an error class carries for a given request type.
+
+Usable as a mapping because no request type maps two of its codes to the same class.
 """
