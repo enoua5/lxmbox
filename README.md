@@ -65,7 +65,7 @@ Requires Python 3.13+ and `uv`.
 uv sync --all-packages               # create the workspace environment
 uv run pytest                        # run the test suite
 uv run ruff check .                  # lint
-uv run mypy packages/rnmmp-core/src  # type-check the protocol core
+uv run mypy                          # run type checking
 ```
 
 ## License

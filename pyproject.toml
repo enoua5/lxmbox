@@ -70,6 +70,10 @@ addopts = "-ra --import-mode=importlib"
 [tool.mypy]
 python_version = "3.13"
 strict = true
+files = [
+    "packages/rnmmp-core/src",
+    "packages/rnmmp-core/tests",
+]
 mypy_path = [
     "packages/rnmmp-core/src",
     "packages/rnmmp-server/src",
