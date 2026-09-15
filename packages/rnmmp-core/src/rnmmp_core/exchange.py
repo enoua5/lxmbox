@@ -23,7 +23,7 @@ from __future__ import annotations
 from abc import ABC, abstractmethod
 from collections.abc import Mapping, Sequence
 from dataclasses import dataclass, field
-from typing import Any, overload, override
+from typing import Any, ClassVar, overload, override
 
 from ._utils import TypeSpec, TypeSpecTuple, assert_parameter_type
 from .codes import ExchangeType, NotificationType, RequestType, ResponseStatus
@@ -47,11 +47,15 @@ def _assert_int(value: Any, name: str) -> int:
     raise MalformedExchangeError(message=f"{name} must be an integer (got {type(value).__name__})")
 
 
-@dataclass(slots=True)
 class Exchange(ABC):
     """Any decoded Exchange"""
 
-    exchange_type: int | ExchangeType
+    __slots__ = ()
+
+    @property
+    @abstractmethod
+    def exchange_type(self) -> int | ExchangeType:
+        """The Exchange Type this Exchange is packed under"""
 
     @abstractmethod
     def to_array(self) -> list[Any]:
@@ -93,7 +97,7 @@ class Exchange(ABC):
                         )
                     keyed_parameters = dict(rest[2])
                     positional_parameters = rest[3:]
-                return Request(exchange_type, request_id, request_type, keyed_parameters, positional_parameters)
+                return Request(request_id, request_type, keyed_parameters, positional_parameters)
 
             case ExchangeType.RESPONSE:
                 if len(rest) < 2:
@@ -101,14 +105,14 @@ class Exchange(ABC):
                 request_id = _assert_int(rest[0], "Request id")
                 status = _assert_int(rest[1], "status")
                 parameters = rest[2:]
-                return Response(exchange_type, request_id, status, parameters)
+                return Response(request_id, status, parameters)
 
             case ExchangeType.NOTIFICATION:
                 if not rest:
                     raise MalformedExchangeError(message="a Notification must carry an event type")
                 event_type = _assert_int(rest[0], "event type")
                 parameters = rest[1:]
-                return Notification(exchange_type, event_type, parameters)
+                return Notification(event_type, parameters)
 
             case _:
                 return UnknownExchange(exchange_type, rest)
@@ -127,6 +131,8 @@ class Exchange(ABC):
 @dataclass(slots=True)
 class Request(Exchange):
     """An Exchange for which a Response is expected"""
+
+    exchange_type: ClassVar[ExchangeType] = ExchangeType.REQUEST
 
     request_id: int
     """A client-supplied request count to help match async requests with their responses"""
@@ -285,7 +291,7 @@ class Request(Exchange):
 
     @override
     def to_array(self) -> list[Any]:
-        array: list[Any] = [ExchangeType.REQUEST.value, self.request_id, self.request_type]
+        array: list[Any] = [self.exchange_type, self.request_id, self.request_type]
         if self.keyed_parameters or self.positional_parameters:
             # We always need to add the keyed parameters, since they always go first
             array.append(dict(self.keyed_parameters))
@@ -296,6 +302,8 @@ class Request(Exchange):
 @dataclass(slots=True)
 class Response(Exchange):
     """An Exchange returning the result of a Request"""
+
+    exchange_type: ClassVar[ExchangeType] = ExchangeType.RESPONSE
 
     request_id: int
     """The Request id this answers, matching the one the Request carried"""
@@ -309,13 +317,13 @@ class Response(Exchange):
     @classmethod
     def ok(cls, request_id: int, *returns: Any) -> Response:
         """Build an `OK` Response carrying zero or more Return Parameters"""
-        return cls(ExchangeType.RESPONSE, request_id, ResponseStatus.OK, list(returns))
+        return cls(request_id, ResponseStatus.OK, list(returns))
 
     @classmethod
     def failure(cls, request_id: int, error: RnmmpError) -> Response:
         """Build the `NO` or `BAD` Response reporting `error`"""
         info = error.package_as_dict()
-        return cls(ExchangeType.RESPONSE, request_id, error.status, [info] if info else [])
+        return cls(request_id, error.status, [info] if info else [])
 
     @property
     def is_ok(self) -> bool:
@@ -340,12 +348,13 @@ class Response(Exchange):
 
     @override
     def to_array(self) -> list[Any]:
-        return [ExchangeType.RESPONSE.value, self.request_id, self.status, *self.parameters]
-
+        return [self.exchange_type, self.request_id, self.status, *self.parameters]
 
 @dataclass(slots=True)
 class Notification(Exchange):
     """An Exchange for which no Response is expected"""
+
+    exchange_type: ClassVar[ExchangeType] = ExchangeType.NOTIFICATION
 
     event_type: int | NotificationType
     """The type of event the notification pertains to"""
@@ -355,7 +364,7 @@ class Notification(Exchange):
 
     @override
     def to_array(self) -> list[Any]:
-        return [ExchangeType.NOTIFICATION.value, self.event_type, *self.parameters]
+        return [self.exchange_type, self.event_type, *self.parameters]
 
 
 @dataclass(slots=True)
@@ -363,6 +372,9 @@ class UnknownExchange(Exchange):
     """
     An Exchange with a type this version does not recognize
     """
+
+    exchange_type: int | ExchangeType
+    """The unrecognized Exchange Type, preserved so the Exchange can be relayed or re-packed"""
 
     parameters: list[Any] = field(default_factory=list)
 
