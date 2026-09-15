@@ -492,9 +492,10 @@ Get the delta for a Collection from a given State Token.
 
 **Return Parameters**
 
-| Index | Name  | Type | Optional? | Description                                                                                 |
-|-------|-------|------|-----------|---------------------------------------------------------------------------------------------|
-| 0     | Delta | Map  | No        | Structured details about the changes to the Collection since the specified Last Known State |
+| Index | Name  | Type  | Optional? | Description                                                                                 |
+|-------|-------|-------|-----------|---------------------------------------------------------------------------------------------|
+| 0     | Delta | Map   | No        | Structured details about the changes to the Collection since the specified Last Known State |
+| 1     | State | Bytes | No        | The Collection's current State Token, which the Delta brings the client up to date with     |
 
 **Specific Error Codes**
 
@@ -502,6 +503,8 @@ Get the delta for a Collection from a given State Token.
 |------|--------------------|----------------------------------------------------------------------------------------------------------------------------|
 | 0    | UNKNOWN_COLLECTION | Server does not have a Collection with the requested id                                                                    |
 | 1    | UNKNOWN_STATE      | Server cannot generate a delta from the given state to the current state. Client SHOULD retry with the Initial State Token |
+
+After applying the Delta, the client SHOULD adopt the returned State as its last known State Token for the Collection.
 
 The exact format of the Delta Return Parameter depends on the Collection type.
 
