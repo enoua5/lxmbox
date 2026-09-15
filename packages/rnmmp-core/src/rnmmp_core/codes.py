@@ -1,5 +1,5 @@
 """
-The integer codes rnmmp uses in place of names on the wire
+The integer codes rnmmp uses in place of names in packets
 """
 
 from collections.abc import Mapping
