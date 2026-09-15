@@ -6,7 +6,9 @@ readme = "README.md"
 requires-python = ">=3.13"
 license = "MIT"
 authors = [{ name = "Enoua5" }]
-dependencies = []
+dependencies = [
+    "u-msgpack-python>=2.7.1",
+]
 
 [build-system]
 requires = ["hatchling"]
@@ -14,3 +16,7 @@ build-backend = "hatchling.build"
 
 [tool.hatch.build.targets.wheel]
 packages = ["src/rnmmp_core"]
+
+# Include the inline type information for downstream packages.
+[tool.hatch.build.targets.wheel.force-include]
+"src/rnmmp_core/py.typed" = "rnmmp_core/py.typed"

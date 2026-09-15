@@ -86,3 +86,10 @@ mypy_path = [
 # Remove if/when we have them
 module = ["RNS.*", "LXMF.*", "nomadnet.*"]
 ignore_missing_imports = true
+
+[[tool.mypy.overrides]]
+# `umsgpack` doesn't have typing, unlike the standard `msgpack`
+# but we decided to use it to match the implementation used in RNS and LXMF
+# We provide a typed wrapper in rnmmp_core.msgpack anyway
+module = ["umsgpack"]
+ignore_missing_imports = true

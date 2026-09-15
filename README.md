@@ -16,8 +16,8 @@ daemon, a command-line client, and a few frontend clients, all designed to run t
 hardware as small as a Raspberry Pi 3.
 
 > [!INFO]
-> **Status: early scaffolding.** This repository currently contains the
-> workspace layout and package skeletons only. Nothing here is functional yet.
+> **Status: in early development.** There will be stubs everywhere for awhile,
+> and what does exist will have drastic breaking changes.
 
 ## Security model — read this first
 

@@ -186,6 +186,7 @@ Values for the `GENERAL_ERROR` key in error information
 | 5    | TOO_LARGE       | The server refuses to process the request because it exceeds size limits or storage space      |
 | 6    | SERVER_ERROR    | The server encountered an error while processing the request and could not continue            |
 | 7    | STATE_MISMATCH  | The client expected the mailbox to be in a state it was not found to be in                     |
+| 8    | MALFORMED       | The request was malformed and could not be parsed                                              |
 
 ## Mailbox state
 
