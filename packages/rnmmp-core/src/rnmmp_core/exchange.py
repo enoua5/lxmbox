@@ -350,6 +350,7 @@ class Response(Exchange):
     def to_array(self) -> list[Any]:
         return [self.exchange_type, self.request_id, self.status, *self.parameters]
 
+
 @dataclass(slots=True)
 class Notification(Exchange):
     """An Exchange for which no Response is expected"""
