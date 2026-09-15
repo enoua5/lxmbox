@@ -20,7 +20,7 @@ right status and general error code, ready for `Response.failure(request_id, exc
 
 from __future__ import annotations
 
-from abc import abstractmethod
+from abc import ABC, abstractmethod
 from collections.abc import Mapping, Sequence
 from dataclasses import dataclass, field
 from typing import Any, overload, override
@@ -41,13 +41,14 @@ __all__ = [
 
 def _assert_int(value: Any, name: str) -> int:
     """Return `value` if it's an int, or raise `MalformedExchangeError` otherwise"""
-    if isinstance(value, int):
+    # `bool` subclasses `int` in Python
+    if isinstance(value, int) and not isinstance(value, bool):
         return value
-    raise MalformedExchangeError(message=f"{name} must be an integer (got {value})")
+    raise MalformedExchangeError(message=f"{name} must be an integer (got {type(value).__name__})")
 
 
-@dataclass
-class Exchange:
+@dataclass(slots=True)
+class Exchange(ABC):
     """Any decoded Exchange"""
 
     exchange_type: int | ExchangeType
@@ -57,7 +58,7 @@ class Exchange:
         """Convert to the array that will be packed for transport"""
 
     def encode(self) -> bytes:
-        """Convert to the bytes send for transport"""
+        """Convert to the bytes sent over the transport"""
         return pack(self.to_array())
 
     @classmethod
@@ -115,7 +116,7 @@ class Exchange:
     @classmethod
     def decode(cls, data: bytes) -> Exchange:
         """
-        Decode an Exchange from the bytes carried pver the transport
+        Decode an Exchange from the bytes carried over the transport
 
         Raises:
             MalformedExchangeError: if `data` is not a well-formed Exchange
@@ -347,7 +348,7 @@ class Notification(Exchange):
     """An Exchange for which no Response is expected"""
 
     event_type: int | NotificationType
-    """The type of event the notification pretains to"""
+    """The type of event the notification pertains to"""
 
     parameters: list[Any] = field(default_factory=list)
     """Parameters, as defined by the event type"""

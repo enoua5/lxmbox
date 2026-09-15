@@ -4,6 +4,7 @@ from __future__ import annotations
 
 from collections.abc import Mapping
 from dataclasses import dataclass, field
+from enum import IntEnum
 from typing import Any
 
 from .codes import (
@@ -59,6 +60,11 @@ __all__ = [
 ]
 
 
+def _render_code(value: int) -> str:
+    """Render a code as its enum member name where it has one, else as a bare integer"""
+    return value.name if isinstance(value, IntEnum) else str(value)
+
+
 def _wrap_as_enum_value[E: int](value: Any, enum: type[E] | None) -> E | int | None:
     """
     Coerce an untyped int code into its enum member value.
@@ -76,7 +82,7 @@ def _wrap_as_enum_value[E: int](value: Any, enum: type[E] | None) -> E | int | N
         return value
 
 
-@dataclass(slots=True)
+@dataclass(slots=True, eq=False)
 class RnmmpError(Exception):
     """
     Base class for rnmmp error information and exception raising
@@ -94,6 +100,17 @@ class RnmmpError(Exception):
     """The `ERROR_DETAILS` map, additional details about the error if applicable"""
     extra: Mapping[Any, Any] = field(default_factory=dict)
     """Additional non-standard values in the error map"""
+
+    def __str__(self) -> str:
+        """
+        Render the error for logs and tracebacks.
+        """
+        codes = [f"status={_render_code(self.status)}"]
+        if self.general_error_code is not None:
+            codes.append(f"general={_render_code(self.general_error_code)}")
+        if self.specific_error_code is not None:
+            codes.append(f"specific={_render_code(self.specific_error_code)}")
+        return f"{self.message} ({', '.join(codes)})" if self.message else f"({', '.join(codes)})"
 
     def package_as_dict(self) -> dict[Any, Any]:
         """Package values as a dict ready to be encoded as msgpack"""
@@ -146,7 +163,7 @@ class RnmmpError(Exception):
 ################################################################################
 
 
-@dataclass(slots=True)
+@dataclass(slots=True, eq=False)
 class UnauthenticatedError(RnmmpError):
     """Client failed to authenticate before making a request"""
 
@@ -155,7 +172,7 @@ class UnauthenticatedError(RnmmpError):
     message: str | None = "Unauthenticated; unknown identity"
 
 
-@dataclass(slots=True)
+@dataclass(slots=True, eq=False)
 class UnauthorizedError(RnmmpError):
     """Client is not authorized to perform the requested transaction"""
 
@@ -164,7 +181,7 @@ class UnauthorizedError(RnmmpError):
     message: str | None = "Unauthorized; unexpected identity"
 
 
-@dataclass(slots=True)
+@dataclass(slots=True, eq=False)
 class IncompleteRequestError(RnmmpError):
     """Request is missing required information"""
 
@@ -173,7 +190,7 @@ class IncompleteRequestError(RnmmpError):
     message: str | None = "Request is missing required information"
 
 
-@dataclass(slots=True)
+@dataclass(slots=True, eq=False)
 class WrongTypeError(RnmmpError):
     """Request included a field with an unexpected datatype"""
 
@@ -182,7 +199,7 @@ class WrongTypeError(RnmmpError):
     message: str | None = "Request included a field with an unexpected datatype"
 
 
-@dataclass(slots=True)
+@dataclass(slots=True, eq=False)
 class UnsupportedError(RnmmpError):
     """Server has not implemented the requested functionality"""
 
@@ -191,7 +208,7 @@ class UnsupportedError(RnmmpError):
     message: str | None = "Server has not implemented the requested functionality"
 
 
-@dataclass(slots=True)
+@dataclass(slots=True, eq=False)
 class TooLargeError(RnmmpError):
     """The server refuses to process the request because it exceeds size limits or storage space"""
 
@@ -200,7 +217,7 @@ class TooLargeError(RnmmpError):
     message: str | None = "The server refuses to process the request because it exceeds size limits or storage space"
 
 
-@dataclass(slots=True)
+@dataclass(slots=True, eq=False)
 class ServerError(RnmmpError):
     """Server encountered an unexpected error"""
 
@@ -209,7 +226,7 @@ class ServerError(RnmmpError):
     message: str | None = "Server encountered an unexpected error"
 
 
-@dataclass(slots=True)
+@dataclass(slots=True, eq=False)
 class StateMismatchError(RnmmpError):
     """Expected the mailbox to be in a state it was not found to be in"""
 
@@ -218,7 +235,7 @@ class StateMismatchError(RnmmpError):
     message: str | None = "Expected the mailbox to be in a state it was not found to be in"
 
 
-@dataclass(slots=True)
+@dataclass(slots=True, eq=False)
 class MalformedExchangeError(RnmmpError):
     """The request was malformed and could not be parsed"""
 
@@ -232,7 +249,7 @@ class MalformedExchangeError(RnmmpError):
 ################################################################################
 
 
-@dataclass(slots=True)
+@dataclass(slots=True, eq=False)
 class UnknownCollectionError(RnmmpError):
     """
     Server does not have a Collection with the requested id.
@@ -242,7 +259,7 @@ class UnknownCollectionError(RnmmpError):
     message: str | None = "Server does not have a Collection with the requested id"
 
 
-@dataclass(slots=True)
+@dataclass(slots=True, eq=False)
 class UnknownDestinationError(RnmmpError):
     """
     Server refuses to send LXMF notifications to the requested Destination
@@ -253,7 +270,7 @@ class UnknownDestinationError(RnmmpError):
     message: str | None = "Server does not recognize the notification Destination as trusted"
 
 
-@dataclass(slots=True)
+@dataclass(slots=True, eq=False)
 class NoPassiveNotificationsError(RnmmpError):
     """
     Server refuses to send LXMF notifications, only supporting notifications over an active link.
@@ -263,7 +280,7 @@ class NoPassiveNotificationsError(RnmmpError):
     message: str | None = "Server only supports notifications over an active link"
 
 
-@dataclass(slots=True)
+@dataclass(slots=True, eq=False)
 class SubscriptionRefusedError(RnmmpError):
     """
     Server refuses to send notifications as requested for unspecified/other reasons.
@@ -273,7 +290,7 @@ class SubscriptionRefusedError(RnmmpError):
     message: str | None = "Server refuses to send notifications as requested"
 
 
-@dataclass(slots=True)
+@dataclass(slots=True, eq=False)
 class UnknownStateError(RnmmpError):
     """
     Server cannot generate a delta from the given state to the current state.
@@ -284,7 +301,7 @@ class UnknownStateError(RnmmpError):
     message: str | None = "Server cannot generate a delta from the given state; resync from the Initial State"
 
 
-@dataclass(slots=True)
+@dataclass(slots=True, eq=False)
 class ConflictingFiltersError(RnmmpError):
     """
     The client specified the same tag in both ONLY_TAGS and EXCLUDE_TAGS.
@@ -294,7 +311,7 @@ class ConflictingFiltersError(RnmmpError):
     message: str | None = "The same tag was specified in both ONLY_TAGS and EXCLUDE_TAGS"
 
 
-@dataclass(slots=True)
+@dataclass(slots=True, eq=False)
 class UnknownTagError(RnmmpError):
     """
     A supplied Tag ID does not exist in the TAG_LIST Collection.
@@ -304,7 +321,7 @@ class UnknownTagError(RnmmpError):
     message: str | None = "A supplied Tag ID does not exist"
 
 
-@dataclass(slots=True)
+@dataclass(slots=True, eq=False)
 class UnknownMessageError(RnmmpError):
     """
     A supplied Message ID does not exist in the MAIL_LIST Collection.
@@ -314,7 +331,7 @@ class UnknownMessageError(RnmmpError):
     message: str | None = "A supplied Message ID does not exist"
 
 
-@dataclass(slots=True)
+@dataclass(slots=True, eq=False)
 class ReservedMetadataKeyError(RnmmpError):
     """
     A supplied Metadata key is one the server manages itself and does not let a client write or remove.
@@ -324,7 +341,7 @@ class ReservedMetadataKeyError(RnmmpError):
     message: str | None = "A supplied Metadata key is managed by the server itself"
 
 
-@dataclass(slots=True)
+@dataclass(slots=True, eq=False)
 class InvalidMetadataKeyError(RnmmpError):
     """
     A supplied Metadata key is neither an integer nor a string, or is otherwise rejected by the server.
@@ -334,7 +351,7 @@ class InvalidMetadataKeyError(RnmmpError):
     message: str | None = "A supplied Metadata key is neither an integer nor a string, or was rejected by the server"
 
 
-@dataclass(slots=True)
+@dataclass(slots=True, eq=False)
 class InvalidTagNameError(RnmmpError):
     """
     The server considers the tag name invalid.
@@ -344,7 +361,7 @@ class InvalidTagNameError(RnmmpError):
     message: str | None = "The server considers the tag name invalid"
 
 
-@dataclass(slots=True)
+@dataclass(slots=True, eq=False)
 class DuplicateTagNameError(RnmmpError):
     """
     The supplied name is already in use by another tag.
@@ -354,7 +371,7 @@ class DuplicateTagNameError(RnmmpError):
     message: str | None = "The supplied tag name is already in use by another tag"
 
 
-@dataclass(slots=True)
+@dataclass(slots=True, eq=False)
 class ServerDefinedTagError(RnmmpError):
     """
     The request tried to delete or rename a Server-Defined Tag.
@@ -364,7 +381,7 @@ class ServerDefinedTagError(RnmmpError):
     message: str | None = "Server-Defined Tags cannot be deleted or renamed"
 
 
-@dataclass(slots=True)
+@dataclass(slots=True, eq=False)
 class SendFailedError(RnmmpError):
     """
     The server failed to deliver the message.
@@ -374,7 +391,7 @@ class SendFailedError(RnmmpError):
     message: str | None = "The server failed to deliver the message"
 
 
-@dataclass(slots=True)
+@dataclass(slots=True, eq=False)
 class SendRefusedError(RnmmpError):
     """
     The server refuses to transmit the message.

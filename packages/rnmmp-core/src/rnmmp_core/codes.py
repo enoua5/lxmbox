@@ -1,5 +1,5 @@
 """
-The integer codes rnmmp uses instead of named in packaged messages
+The integer codes rnmmp uses in place of names on the wire
 """
 
 from collections.abc import Mapping
@@ -34,8 +34,8 @@ __all__ = [
     "SendRawParam",
     "ServerTag",
     "SetMetadataError",
-    "StateMismatchDetail",
     "ResponseStatus",
+    "StateMismatchDetail",
     "SubscribeError",
     "SyncError",
     "UploadError",
