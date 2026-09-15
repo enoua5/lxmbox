@@ -59,6 +59,26 @@ The "Single" mode uses the Content part of an LXMF message to carry Exchanges as
 
 The Link and Single modes differ in how data is transferred and in how the client is authenticated, but otherwise operate identically. See the "Exchange" and "Authentication" sections for more information.
 
+#### Link mode transport
+
+In Link mode the client establishes a Reticulum Link to the server's Destination, and either peer sends Exchanges over that Link.
+
+An Exchange that fits within a single link packet MAY be sent as one packet whose payload is exactly one encoded Exchange.
+An Exchange that does not fit MUST instead be sent as a Reticulum Resource over the Link, whose transferred data is exactly one encoded Exchange.
+A sender MAY use a Resource for an Exchange of any size.
+A receiver MUST accept Exchanges arriving by either carriage, and so MUST accept incoming Resources on the Link.
+
+An Exchange MUST NOT be split across link packets, and a packet or Resource MUST NOT carry more than one Exchange.
+
+Link packets are not retransmitted by Reticulum.
+A Request is acknowledged by its Response: a client that receives no Response in a reasonable time MAY send the same Request again, unchanged.
+Notifications are not acknowledged, as described in the "Notifications" section.
+
+#### Single mode transport
+
+In Single mode each Exchange is carried as the Content of a signed LXMF message, as described in the "Authentication" section.
+The Content of such a message MUST be exactly one encoded Exchange.
+
 ### Exchange
 
 An Exchange is some unit of information transferred between the client and the server.
@@ -77,6 +97,9 @@ Additional items in the array are Parameters carrying the content of the Exchang
 Implementations MUST ignore Exchanges with types they do not recognize.
 Implementations MUST reject Exchanges with missing required parameters.
 Implementations SHOULD accept Exchanges with unexpected additional parameters.
+
+When a received Exchange cannot be parsed, or is rejected as malformed, the receiver SHOULD answer with a `BAD` Response carrying the General Error `MALFORMED` — but only when the Exchange is identifiable as a Request with a readable Request id.
+When no Request id is recoverable the receiver MUST NOT create one: in Link mode the Exchange MUST be discarded silently, while in Single mode the receiver MAY still respond using Request id `0`, since Single mode Responses are matched by `FIELD_REPLY_TO` rather than by Request id.
 
 #### Requests
 
@@ -102,6 +125,9 @@ with meanings assigned according to request type — referred to as Keyed Parame
 A sender SHOULD NOT include keys in this parameter that are not defined in this spec.
 A receiver MUST accept and ignore keys in this parameter it does not expect.
 Additional parameters after the Keyed Parameter map are referred to as Positional Parameters.
+
+When any additional parameters are supplied, the first MUST be the Keyed Parameter map itself: a Request whose first additional parameter is not a map is malformed. `nil` MUST NOT be supplied in place of an empty Keyed Parameter map.
+A sender MAY omit trailing Optional parameters, and MAY supply `nil` in place of an Optional parameter it does not use; a receiver MUST treat an explicitly `nil` parameter, keyed or positional, as absent.
 
 #### Responses
 
@@ -323,6 +349,8 @@ Metadata Map keys are integers or strings. Integer keys between 0 and 127 inclus
 | ID | Name         | Type      | Description                              |
 |----|--------------|-----------|------------------------------------------|
 | 0  | RECEIVE_TIME | Timestamp | The time the server received the message |
+
+A Timestamp is a value of the msgpack timestamp extension type (ext type -1): seconds since the Unix epoch, with optional nanosecond precision, always representing an absolute UTC instant.
 
 ## Request types
 
@@ -674,11 +702,11 @@ Fetch the Timestamp portion of stored LXMF messages.
 
 **Return Parameters**
 
-| Index | Name     | Type               | Optional? | Description                                                                                                      |
-|-------|----------|--------------------|-----------|------------------------------------------------------------------------------------------------------------------|
-| 0     | Messages | List[Float OR nil] | No        | The message timestamps, returned in the same order requested. For messages that aren't found, `nil` is returned. |
+| Index | Name     | Type                   | Optional? | Description                                                                                                      |
+|-------|----------|------------------------|-----------|------------------------------------------------------------------------------------------------------------------|
+| 0     | Messages | List[Timestamp OR nil] | No        | The message timestamps, returned in the same order requested. For messages that aren't found, `nil` is returned. |
 
-The Messages Return Parameter is a list of each message's reported Timestamp as a float: the LXMF message timestamp, in seconds since the Unix epoch.
+The Messages Return Parameter is a list of each message's reported Timestamp: the LXMF message timestamp, converted to the Timestamp type described in the "METADATA" section.
 
 The server MUST return `nil` for any requested id that does not exist in the MAIL_LIST Collection,
 or for which the stored message is not in LXMF.
