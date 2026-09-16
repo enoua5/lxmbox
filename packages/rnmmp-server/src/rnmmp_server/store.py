@@ -13,17 +13,42 @@ from __future__ import annotations
 from collections import deque
 from collections.abc import Sequence
 from dataclasses import dataclass, field
-from typing import Any, Protocol
+from typing import Any, Final, Protocol
 
-from rnmmp_core import INITIAL_STATE_TOKEN
+from LXMF import LXMessage
+
+from rnmmp_core import INITIAL_STATE_TOKEN, MalformedExchangeError, unpack
+
+HEAD_LENGTH: Final[int] = 2 * LXMessage.DESTINATION_LENGTH + LXMessage.SIGNATURE_LENGTH
+"""Destination hash, source hash and signature: the LXMF head"""
 
 __all__ = [
     "ChangeSet",
     "LogEntry",
     "MemoryStore",
+    "MessageIndex",
     "StoredMessage",
     "Store",
 ]
+
+
+@dataclass(frozen=True, slots=True)
+class MessageIndex:
+    """
+    What the store indexes about a message.
+
+    Storage backends can store these fields in a faster and
+    better-indexed store to provide quicker fetching and searching
+    """
+
+    message_id: bytes
+    lxmf: bool
+    head: bytes | None
+    """The Destination, Source and Signature portions, as FETCH_HEAD returns them"""
+    timestamp: float | None
+    """The LXMF Timestamp, in seconds since the Unix epoch"""
+    title: bytes | None
+    """The LXMF Title"""
 
 
 @dataclass(frozen=True, slots=True)
@@ -42,6 +67,41 @@ class StoredMessage:
 
     Uploads are stored opaquely and are not considered LXMF even if they parse.
     """
+
+    # NOTE `head`, `timestamp`, and `title` are set at write-time.
+    # Stores should trust the values submitted by the model, and not try to derive them
+    head: bytes | None = None
+    """The Destination, Source and Signature portions, as FETCH_HEAD returns them"""
+    timestamp: float | None = None
+    title: bytes | None = None
+
+    @classmethod
+    def from_raw(cls, message_id: bytes, raw: bytes, *, lxmf: bool) -> StoredMessage:
+        """
+        Build a record, extracting the index portions if the message is LXMF.
+
+        A message entered with `lxmf=False` or that does not slice or decode as LXMF gets `None` portions
+        """
+        if not lxmf:
+            return cls(message_id, raw, lxmf=False)
+        head = raw[:HEAD_LENGTH] if len(raw) > HEAD_LENGTH else None
+        timestamp: float | None = None
+        title: bytes | None = None
+        if head is not None:
+            try:
+                parts = unpack(raw[HEAD_LENGTH:])
+            except MalformedExchangeError:
+                parts = None
+            if isinstance(parts, list) and len(parts) >= 4:
+                if isinstance(parts[0], int | float) and not isinstance(parts[0], bool):
+                    timestamp = float(parts[0])
+                if isinstance(parts[1], bytes):
+                    title = parts[1]
+        return cls(message_id, raw, lxmf=True, head=head, timestamp=timestamp, title=title)
+
+    def index(self) -> MessageIndex:
+        """The record's indexed fields"""
+        return MessageIndex(self.message_id, self.lxmf, self.head, self.timestamp, self.title)
 
 
 @dataclass(frozen=True, slots=True)
@@ -130,6 +190,10 @@ class Store(Protocol):
         """The subset of the requested ids present in the MAIL_LIST Collection"""
         ...
 
+    def message_index(self, message_ids: Sequence[bytes]) -> list[MessageIndex | None]:
+        """The index records, in the order requested, `None` for each id not present; content untouched"""
+        ...
+
     def get_messages(self, message_ids: Sequence[bytes]) -> list[StoredMessage | None]:
         """
         The stored messages with their content, in the order requested, `None` for each id not present.
@@ -197,6 +261,10 @@ class MemoryStore:
     def existing_message_ids(self, message_ids: Sequence[bytes]) -> set[bytes]:
         """The subset of the requested ids that exist"""
         return {message_id for message_id in message_ids if message_id in self._messages}
+
+    def message_index(self, message_ids: Sequence[bytes]) -> list[MessageIndex | None]:
+        """The index projections, in the order requested"""
+        return [record.index() if (record := self._messages.get(message_id)) else None for message_id in message_ids]
 
     def get_messages(self, message_ids: Sequence[bytes]) -> list[StoredMessage | None]:
         """The stored messages, in the order requested"""

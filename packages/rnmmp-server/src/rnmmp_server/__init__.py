@@ -8,7 +8,7 @@ from .model import (
     TokenPair,
     UpdatedStates,
 )
-from .store import ChangeSet, LogEntry, MemoryStore, Store, StoredMessage
+from .store import ChangeSet, LogEntry, MemoryStore, MessageIndex, Store, StoredMessage
 
 __version__ = "0.0.0"
 
@@ -20,6 +20,7 @@ __all__ = [
     "LogEntry",
     "MailboxModel",
     "MemoryStore",
+    "MessageIndex",
     "Store",
     "StoredMessage",
     "TokenPair",

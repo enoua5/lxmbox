@@ -35,7 +35,7 @@ from rnmmp_core import (
     UnknownTagError,
 )
 
-from .store import ChangeSet, LogEntry, Store, StoredMessage
+from .store import ChangeSet, LogEntry, MessageIndex, Store, StoredMessage
 
 __all__ = [
     "RESERVED_METADATA_KEYS",
@@ -110,6 +110,11 @@ class MailboxModel:
         """The stored messages, in the order requested, `None` for each id not present"""
         with self._lock:
             return self._store.get_messages(list(message_ids))
+
+    def index_of(self, message_ids: Iterable[bytes]) -> list[MessageIndex | None]:
+        """Each message's index record (non-content fields) in the order requested, `None` for missing"""
+        with self._lock:
+            return self._store.message_index(list(message_ids))
 
     def tags(self) -> dict[int, str]:
         """The TAG_LIST Collection"""
@@ -187,7 +192,7 @@ class MailboxModel:
             tag_ids = {int(tag_id) for tag_id in tags}
             self._require_tags(tag_ids)
             return self._add_message(
-                StoredMessage(message_id, raw, lxmf=lxmf), tag_ids, dict(metadata or {}), if_in_state=None
+                StoredMessage.from_raw(message_id, raw, lxmf=lxmf), tag_ids, dict(metadata or {}), if_in_state=None
             )
 
     def upload(
@@ -232,7 +237,7 @@ class MailboxModel:
             for raw in raws:
                 message_id = uuid.uuid4().bytes
                 message_ids.append(message_id)
-                changes.messages_added.append(StoredMessage(message_id, raw, lxmf=False))
+                changes.messages_added.append(StoredMessage.from_raw(message_id, raw, lxmf=False))
                 mail_priors[message_id] = False
                 if tag_ids:
                     changes.tag_pairs_added.extend((message_id, tag_id) for tag_id in tag_ids)
