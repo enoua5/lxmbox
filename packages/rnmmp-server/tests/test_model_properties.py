@@ -70,12 +70,17 @@ def canonical(collection: int, delta: dict[Any, Any]) -> Any:
 
 
 def advance(collection: int, state: Any, delta: dict[Any, Any]) -> Any:
-    """Apply a delta to known client state, the way the spec tells a client to"""
+    """
+    Apply a delta to known client state, the way the spec tells a client to.
+
+    MESSAGE_TAG is a set of pairs and METADATA a map of maps — with an empty value
+    and `nil` leaving the client in the same state.
+    """
     if collection == Collection.MAIL_LIST:
         return (state | set(delta[int(MailListDeltaKey.ADDED)])) - set(delta[int(MailListDeltaKey.DELETED)])
     updated = dict(state)
     for key, value in delta.items():
-        if value is None:
+        if value is None or (collection != Collection.TAG_LIST and not value):
             updated.pop(key, None)
         elif collection == Collection.MESSAGE_TAG:
             updated[key] = frozenset(value)
