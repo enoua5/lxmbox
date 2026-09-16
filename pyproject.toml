@@ -21,6 +21,7 @@ dev = [
     "pytest>=8",
     "ruff>=0.6",
     "mypy>=1.11",
+    "hypothesis>=6",
 ]
 
 # --- ruff -------------------------------------------------------------------
@@ -74,6 +75,7 @@ files = [
     "packages/rnmmp-core/src",
     "packages/rnmmp-core/tests",
     "packages/rnmmp-server/src",
+    "packages/rnmmp-server/tests",
 ]
 mypy_path = [
     "packages/rnmmp-core/src",
