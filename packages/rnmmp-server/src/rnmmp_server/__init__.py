@@ -1,5 +1,6 @@
 """The Reticulum Network Mail Management Protocol server"""
 
+from .handlers import handle
 from .model import (
     RESERVED_METADATA_KEYS,
     SERVER_DEFINED_TAG_NAMES,
@@ -8,17 +9,20 @@ from .model import (
     TokenPair,
     UpdatedStates,
 )
+from .service import APP_NAME, MailboxService
 from .store import ChangeSet, LogEntry, MemoryStore, MessageIndex, Store, StoredMessage
 
 __version__ = "0.0.0"
 
 __all__ = [
+    "APP_NAME",
     "RESERVED_METADATA_KEYS",
     "SERVER_DEFINED_TAG_NAMES",
     "TOKEN_LENGTH",
     "ChangeSet",
     "LogEntry",
     "MailboxModel",
+    "MailboxService",
     "MemoryStore",
     "MessageIndex",
     "Store",
@@ -26,4 +30,5 @@ __all__ = [
     "TokenPair",
     "UpdatedStates",
     "__version__",
+    "handle",
 ]

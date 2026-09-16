@@ -46,6 +46,7 @@ class Destination:
 
 class Link:
     MDU: int
+    link_id: bytes
     ACCEPT_NONE: int
     ACCEPT_APP: int
     ACCEPT_ALL: int
@@ -73,7 +74,7 @@ class Resource:
     COMPLETE: int
     FAILED: int
     status: int
-    data: BinaryIO | None
+    data: bytes | BinaryIO | None
     link: Link
     def __init__(
         self,
