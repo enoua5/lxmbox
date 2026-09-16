@@ -78,6 +78,7 @@ files = [
     "packages/rnmmp-server/tests",
 ]
 mypy_path = [
+    "stubs",
     "packages/rnmmp-core/src",
     "packages/rnmmp-server/src",
     "packages/rnmmp-client/src",
@@ -91,7 +92,8 @@ mypy_path = [
 [[tool.mypy.overrides]]
 # Missing type stubs
 # Remove if/when we have them
-module = ["RNS.*", "LXMF.*", "nomadnet.*"]
+# See also `stubs/` containing our own type stubs
+module = ["LXMF.*", "nomadnet.*"]
 ignore_missing_imports = true
 
 [[tool.mypy.overrides]]
