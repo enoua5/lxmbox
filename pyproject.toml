@@ -73,6 +73,7 @@ strict = true
 files = [
     "packages/rnmmp-core/src",
     "packages/rnmmp-core/tests",
+    "packages/rnmmp-server/src",
 ]
 mypy_path = [
     "packages/rnmmp-core/src",
