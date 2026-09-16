@@ -1,7 +1,17 @@
 """Tests for the `Store` contract, exercised through `MemoryStore`, the reference backend"""
 
-from rnmmp_core import INITIAL_STATE_TOKEN, Collection
-from rnmmp_server import ChangeSet, LogEntry, MemoryStore, StoredMessage
+import pytest
+
+from rnmmp_core import INITIAL_STATE_TOKEN, Collection, pack
+from rnmmp_server import ChangeSet, LogEntry, MemoryStore, MessageIndex, StoredMessage
+
+LXMF_HEAD = bytes(range(48)) * 2
+
+
+def lxmf_raw(timestamp: object = 1757900000.5, title: object = b"the title", content: bytes = b"the content") -> bytes:
+    """An example packed LXMF message"""
+    return LXMF_HEAD + pack([timestamp, title, content, {}])
+
 
 MID_A = b"\xaa" * 32
 MID_B = b"\xbb" * 32
@@ -161,3 +171,69 @@ class TestTokensAndLog:
             LogEntry(bytes([3]), {b"m": True}),
             LogEntry(bytes([4]), {b"m": True}),
         ]
+
+
+class TestMessageIndex:
+    """Write-time extraction of the index portions, and the read that serves them."""
+
+    def test_an_lxmf_record_extracts_its_index_portions(self) -> None:
+        """Head, Timestamp and Title are sliced once, when the record is built."""
+        record = StoredMessage.from_raw(MID_A, lxmf_raw(), lxmf=True)
+
+        assert record.index() == MessageIndex(MID_A, True, LXMF_HEAD, 1757900000.5, b"the title")
+
+    def test_a_non_lxmf_record_has_no_portions(self) -> None:
+        """Uploads are stored opaquely and are never parsed."""
+        record = StoredMessage.from_raw(MID_A, lxmf_raw(), lxmf=False)
+
+        assert record.index() == MessageIndex(MID_A, False, None, None, None)
+
+    def test_head_needs_bytes_beyond_the_head_length(self) -> None:
+        """A message no longer than the head cannot be LXMF, so no portion is extracted."""
+        record = StoredMessage.from_raw(MID_A, LXMF_HEAD, lxmf=True)
+
+        assert record.index() == MessageIndex(MID_A, True, None, None, None)
+
+    @pytest.mark.parametrize(
+        "payload",
+        [
+            pytest.param(b"\xc1 not msgpack", id="undecodable"),
+            pytest.param(pack("not a list"), id="not-a-list"),
+            pytest.param(pack([1.0, b"short"]), id="too-few-parts"),
+        ],
+    )
+    def test_a_corrupt_payload_keeps_the_head_and_drops_the_rest(self, payload: bytes) -> None:
+        """A message that does not decode as LXMF answers like one that is not LXMF."""
+        record = StoredMessage.from_raw(MID_A, LXMF_HEAD + payload, lxmf=True)
+
+        assert record.head == LXMF_HEAD
+        assert record.timestamp is None and record.title is None
+
+    def test_an_integer_timestamp_is_stored_as_a_float(self) -> None:
+        """LXMF timestamps are epoch seconds however they were packed."""
+        record = StoredMessage.from_raw(MID_A, lxmf_raw(timestamp=1757900000), lxmf=True)
+
+        assert record.timestamp == 1757900000.0
+
+    @pytest.mark.parametrize(
+        ("timestamp", "title"),
+        [
+            pytest.param(True, b"t", id="bool-timestamp"),
+            pytest.param(1.0, "not bytes", id="string-title"),
+        ],
+    )
+    def test_wrongly_typed_portions_are_dropped(self, timestamp: object, title: object) -> None:
+        """A portion of the wrong type is no portion at all."""
+        record = StoredMessage.from_raw(MID_A, lxmf_raw(timestamp=timestamp, title=title), lxmf=True)
+
+        assert (record.timestamp, record.title) != (timestamp, title)
+
+    def test_message_index_preserves_order_and_marks_missing(self) -> None:
+        """Index records come back in the order requested, `None` for each id not present."""
+        store = MemoryStore()
+        store.apply(ChangeSet(messages_added=[StoredMessage.from_raw(MID_A, lxmf_raw(), lxmf=True)]))
+
+        first, missing = store.message_index([MID_A, b"missing"])
+
+        assert first is not None and first.title == b"the title"
+        assert missing is None

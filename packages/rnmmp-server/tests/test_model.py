@@ -24,8 +24,9 @@ from rnmmp_core import (
     UnknownMessageError,
     UnknownStateError,
     UnknownTagError,
+    pack,
 )
-from rnmmp_server import MailboxModel, MemoryStore, StoredMessage
+from rnmmp_server import MailboxModel, MemoryStore, MessageIndex, StoredMessage
 
 MID = b"\x11" * 32
 OTHER_MID = b"\x22" * 32
@@ -272,6 +273,39 @@ class TestIngest:
     def test_a_bare_ingest_touches_only_the_mail_list(self) -> None:
         """A Collection that did not change MUST NOT appear in Updated States."""
         assert set(fresh().ingest(MID, b"raw", lxmf=True)) == {Collection.MAIL_LIST}
+
+
+class TestIndexOf:
+    """The index read: everything except content, without touching content."""
+
+    LXMF_HEAD = bytes(range(48)) * 2
+
+    def test_index_records_come_back_in_order_with_none_for_missing(self) -> None:
+        """An ingested LXMF message indexes its portions; an upload and a missing id do not."""
+        model = fresh()
+        raw = self.LXMF_HEAD + pack([1757900000.5, b"the title", b"content", {}])
+        model.ingest(MID, raw, lxmf=True)
+        _, (upload_id,) = model.upload([b"opaque"])
+
+        lxmf, upload, missing = model.index_of([MID, upload_id, b"missing"])
+
+        assert lxmf == MessageIndex(MID, True, self.LXMF_HEAD, 1757900000.5, b"the title")
+        assert upload == MessageIndex(upload_id, False, None, None, None)
+        assert missing is None
+
+    def test_index_reads_never_touch_content(self) -> None:
+        """The index is served without loading message bodies."""
+
+        class ContentGuard(MemoryStore):
+            def get_messages(self, message_ids: object) -> list[StoredMessage | None]:
+                raise AssertionError("content was fetched on an index path")
+
+        model = MailboxModel(ContentGuard())
+        raw = self.LXMF_HEAD + pack([1.0, b"t", b"c", {}])
+        model.ingest(MID, raw, lxmf=True)
+        model.upload([b"opaque"])
+
+        assert model.index_of([MID])[0] is not None
 
 
 class TestUpload:
