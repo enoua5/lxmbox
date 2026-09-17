@@ -181,7 +181,7 @@ def _fetch_metadata(model: MailboxModel, request: Request) -> Response:
 
 
 def _upload(model: MailboxModel, request: Request) -> Response:
-    """UPLOAD: store the raw messages opaquely, with the server stamping the receive time"""
+    """UPLOAD: store the raw messages opaquely, with the server recording the receive time"""
     raws = _bytes_items(request.get_required(0, list, name="Messages"), "Messages")
     tags = _int_items(request.get_keyed(int(UploadParam.TAGS), list, name="TAGS", default=[]), "TAGS")
     metadata = request.get_keyed(int(UploadParam.METADATA), dict, name="METADATA", default={})
