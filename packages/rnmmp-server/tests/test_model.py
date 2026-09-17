@@ -2,6 +2,8 @@
 Tests for `MailboxModel`, the mailbox-state rules
 """
 
+from collections.abc import Sequence
+from collections.abc import Set as AbstractSet
 from typing import Any
 
 import pytest
@@ -9,6 +11,7 @@ import pytest
 from rnmmp_core import (
     INITIAL_STATE_TOKEN,
     Collection,
+    ConflictingFiltersError,
     DuplicateTagNameError,
     InvalidMetadataKeyError,
     InvalidTagNameError,
@@ -297,7 +300,7 @@ class TestIndexOf:
         """The index is served without loading message bodies."""
 
         class ContentGuard(MemoryStore):
-            def get_messages(self, message_ids: object) -> list[StoredMessage | None]:
+            def get_messages(self, message_ids: Sequence[bytes]) -> list[StoredMessage | None]:
                 raise AssertionError("content was fetched on an index path")
 
         model = MailboxModel(ContentGuard())
@@ -306,6 +309,126 @@ class TestIndexOf:
         model.upload([b"opaque"])
 
         assert model.index_of([MID])[0] is not None
+
+
+class TestSearch:
+    """Tests for the model's handling of searches"""
+
+    HEAD = bytes(range(48)) * 2
+    GROCERY = b"\x01" * 32
+    REPLY = b"\x02" * 32
+    UNICODE = b"\x03" * 32
+
+    def _mailbox(self, store: MemoryStore | None = None) -> MailboxModel:
+        """Three LXMF messages with distinct titles, contents and tags, plus one upload."""
+        model = MailboxModel(store or MemoryStore())
+        rows = [
+            (self.GROCERY, b"Grocery List", b"eggs and milk", [int(ServerTag.UNREAD)]),
+            (self.REPLY, b"Re: grocery", b"got the EGGS", [int(ServerTag.UNREAD), int(ServerTag.IMPORTANT)]),
+            (self.UNICODE, "\u00dcn\u00efcode Groc\u00e9ry".encode(), b"unrelated", []),
+        ]
+        for message_id, title, content, tags in rows:
+            model.ingest(message_id, self.HEAD + pack([1.0, title, content, {}]), lxmf=True, tags=tags)
+        model.upload([b"an opaque note about eggs"])
+        return model
+
+    def test_title_matching_is_case_insensitive(self) -> None:
+        """A server SHOULD at minimum perform a case-insensitive substring match"""
+        assert set(self._mailbox().search_title("GROCERY")) == {self.GROCERY, self.REPLY}
+
+    def test_title_matching_casefolds_beyond_ascii(self) -> None:
+        """Case-insensitivity covers the whole of the text"""
+        assert set(self._mailbox().search_title("groc\u00e9ry")) == {self.UNICODE}
+
+    def test_title_search_covers_lxmf_messages_only(self) -> None:
+        """SEARCH_TITLE only applies to LXMF messages"""
+        assert self._mailbox().search_title("eggs") == []
+
+    def test_content_search_reaches_uploads(self) -> None:
+        """A non-LXMF message is searched by its full content"""
+        model = self._mailbox()
+        matches = model.search_content("eggs")
+
+        assert {self.GROCERY, self.REPLY} < set(matches) and len(matches) == 3
+
+    def test_only_tags_require_every_tag(self) -> None:
+        """The server MUST NOT return any Message ID that does not have every specified tag set"""
+        matches = self._mailbox().search_title("grocery", only_tags=[int(ServerTag.UNREAD), int(ServerTag.IMPORTANT)])
+
+        assert matches == [self.REPLY]
+
+    def test_exclude_tags_reject_any_tag(self) -> None:
+        """The server MUST NOT return any Message ID that has any specified tag set"""
+        matches = self._mailbox().search_title("grocery", exclude_tags=[int(ServerTag.IMPORTANT)])
+
+        assert matches == [self.GROCERY]
+
+    @pytest.mark.parametrize("which", ["title", "content"])
+    def test_conflicting_filters_are_refused(self, which: str) -> None:
+        """The same tag in both ONLY_TAGS and EXCLUDE_TAGS is a conflict, checked before searching"""
+        model = self._mailbox()
+        search = model.search_title if which == "title" else model.search_content
+
+        with pytest.raises(ConflictingFiltersError):
+            search("x", only_tags=[int(ServerTag.UNREAD)], exclude_tags=[int(ServerTag.UNREAD)])
+
+    def test_max_results_truncates_after_filtering(self) -> None:
+        """If MAX_RESULTS is given, the server MUST NOT return more"""
+        matches = self._mailbox().search_content("eggs", only_tags=[int(ServerTag.UNREAD)], max_results=1)
+
+        assert len(matches) == 1 and matches[0] in {self.GROCERY, self.REPLY}
+
+    def test_max_results_zero_returns_nothing(self) -> None:
+        """Zero is a limit like any other"""
+        assert self._mailbox().search_content("eggs", max_results=0) == []
+
+    def test_the_filter_hints_reach_the_store(self) -> None:
+        """The store receives the tag filters, so an indexed backend can narrow its search"""
+
+        class Probe(MemoryStore):
+            seen: tuple[set[int], set[int]] | None = None
+
+            def search_title(
+                self, query: str, *, only_tags: AbstractSet[int], exclude_tags: AbstractSet[int]
+            ) -> list[bytes]:
+                Probe.seen = (set(only_tags), set(exclude_tags))
+                return []
+
+        self._mailbox(Probe()).search_title("x", only_tags=[1], exclude_tags=[-1])
+
+        assert Probe.seen == ({1}, {-1})
+
+    def test_a_hint_ignoring_store_is_still_filtered(self) -> None:
+        """The hints are optional for the store; the model re-applies the filters authoritatively"""
+
+        class Sloppy(MemoryStore):
+            def search_title(
+                self, query: str, *, only_tags: AbstractSet[int], exclude_tags: AbstractSet[int]
+            ) -> list[bytes]:
+                return list(super().search_title(query, only_tags=frozenset(), exclude_tags=frozenset()))
+
+        matches = self._mailbox(Sloppy()).search_title("grocery", exclude_tags=[int(ServerTag.IMPORTANT)])
+
+        assert matches == [self.GROCERY]
+
+    def test_a_limited_content_search_loads_few_bodies(self) -> None:
+        """A small limit keeps body loads bounded by the scan batch"""
+
+        class Counting(MemoryStore):
+            loads = 0
+
+            def get_messages(self, message_ids: Sequence[bytes]) -> list[StoredMessage | None]:
+                Counting.loads += len(message_ids)
+                return super().get_messages(message_ids)
+
+        model = MailboxModel(Counting())
+        for index in range(200):
+            raw = self.HEAD + pack([1.0, b"t", b"eggs %d" % index, {}])
+            model.ingest(bytes([index]) * 32, raw, lxmf=True)
+        Counting.loads = 0
+
+        assert len(model.search_content("eggs", max_results=3)) == 3
+        assert Counting.loads <= 32
 
 
 class TestUpload:
@@ -663,7 +786,7 @@ class TestContentIsolation:
         """Reads, writes and syncs run against a store whose content fetch refuses to answer."""
 
         class ContentGuard(MemoryStore):
-            def get_messages(self, message_ids: object) -> list[StoredMessage | None]:
+            def get_messages(self, message_ids: Sequence[bytes]) -> list[StoredMessage | None]:
                 raise AssertionError("content was fetched on an existence-only path")
 
         model = MailboxModel(ContentGuard())

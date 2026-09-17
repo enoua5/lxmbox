@@ -1,5 +1,7 @@
 """Tests for the `Store` contract, exercised through `MemoryStore`, the reference backend"""
 
+from collections.abc import Sequence
+
 import pytest
 
 from rnmmp_core import INITIAL_STATE_TOKEN, Collection, pack
@@ -119,6 +121,92 @@ class TestApply:
         store.apply(ChangeSet(tags_renamed={1: "Renamed"}))
 
         assert store.all_tags() == {1: "Renamed", 2: "Home"}
+
+
+class TestScanSearch:
+    """The reference scan-based search"""
+
+    def _populated_scan(self) -> MemoryStore:
+        """Two LXMF messages, one tagged"""
+        store = MemoryStore()
+        store.apply(
+            ChangeSet(
+                messages_added=[
+                    StoredMessage.from_raw(MID_A, lxmf_raw(title=b"Alpha Report", content=b"find me"), lxmf=True),
+                    StoredMessage.from_raw(MID_B, lxmf_raw(title=b"beta report", content=b"skip me"), lxmf=True),
+                ],
+                tags_created={1: "Work"},
+                tag_pairs_added=[(MID_A, 1)],
+            )
+        )
+        return store
+
+    def test_matching_is_a_casefolded_substring(self) -> None:
+        """Case-insensitive substring over the decoded text."""
+        store = self._populated_scan()
+
+        assert set(store.search_title("REPORT", only_tags=frozenset(), exclude_tags=frozenset())) == {MID_A, MID_B}
+
+    def test_undecodable_title_bytes_do_not_match_or_crash(self) -> None:
+        """Bytes that are not UTF-8 are replaced, not fatal"""
+        store = MemoryStore()
+        store.apply(
+            ChangeSet(messages_added=[StoredMessage.from_raw(MID_A, lxmf_raw(title=b"\xff\xfegro"), lxmf=True)])
+        )
+
+        assert list(store.search_title("gro", only_tags=frozenset(), exclude_tags=frozenset())) == [MID_A]
+        assert list(store.search_title("\xff", only_tags=frozenset(), exclude_tags=frozenset())) == []
+
+    def test_the_hints_skip_ruled_out_bodies(self) -> None:
+        """Content search never loads a body the filters already rule out"""
+
+        class Counting(MemoryStore):
+            loads = 0
+
+            def get_messages(self, message_ids: Sequence[bytes]) -> list[StoredMessage | None]:
+                Counting.loads += len(message_ids)
+                return super().get_messages(message_ids)
+
+        store = Counting()
+        store.apply(
+            ChangeSet(
+                messages_added=[
+                    StoredMessage.from_raw(MID_A, lxmf_raw(content=b"find me"), lxmf=True),
+                    StoredMessage.from_raw(MID_B, lxmf_raw(content=b"find me too"), lxmf=True),
+                ],
+                tags_created={1: "Work"},
+                tag_pairs_added=[(MID_A, 1)],
+            )
+        )
+        matches = list(store.search_content("find", only_tags=frozenset({1}), exclude_tags=frozenset()))
+
+        assert matches == [MID_A]
+        assert Counting.loads == 1
+
+    def test_content_search_is_lazy(self) -> None:
+        """Consuming one match loads one batch of bodies, not the full mailbox"""
+        from itertools import islice
+
+        class Counting(MemoryStore):
+            loads = 0
+
+            def get_messages(self, message_ids: Sequence[bytes]) -> list[StoredMessage | None]:
+                Counting.loads += len(message_ids)
+                return super().get_messages(message_ids)
+
+        store = Counting()
+        store.apply(
+            ChangeSet(
+                messages_added=[
+                    StoredMessage.from_raw(bytes([index]) * 32, lxmf_raw(content=b"match"), lxmf=True)
+                    for index in range(100)
+                ]
+            )
+        )
+        first = list(islice(store.search_content("match", only_tags=frozenset(), exclude_tags=frozenset()), 1))
+
+        assert len(first) == 1
+        assert Counting.loads <= 16
 
 
 class TestTokensAndLog:

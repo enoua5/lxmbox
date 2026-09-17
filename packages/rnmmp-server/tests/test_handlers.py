@@ -15,6 +15,7 @@ from rnmmp_core import (
     INITIAL_STATE_TOKEN,
     PROTOCOL_VERSION,
     Collection,
+    ConflictingFiltersError,
     ErrorInfoKey,
     GeneralError,
     MetadataKey,
@@ -22,6 +23,9 @@ from rnmmp_core import (
     RequestType,
     Response,
     ResponseStatus,
+    SearchContentParam,
+    SearchTitleError,
+    SearchTitleParam,
     ServerTag,
     StateMismatchDetail,
     StateMismatchError,
@@ -170,6 +174,65 @@ class TestFetch:
 
         assert response.status is ResponseStatus.BAD
         assert response.parameters[0][ErrorInfoKey.GENERAL_ERROR] == GeneralError.WRONG_TYPE
+
+
+class TestSearch:
+    """The search request handlers"""
+
+    def _mailbox(self) -> MailboxModel:
+        """The shared fixture message, plus a second tagged IMPORTANT, and any extras"""
+        model = mailbox()
+        raw = LXMF_HEAD + pack([2.0, b"the other title", b"other content", {}])
+        model.ingest(b"\x22" * 32, raw, lxmf=True, tags=[ServerTag.UNREAD, ServerTag.IMPORTANT])
+        return model
+
+    def test_search_title_returns_matching_ids(self) -> None:
+        """SEARCH_TITLE answers with the ids of LXMF messages whose Title matches the Query"""
+        response = ask(self._mailbox(), RequestType.SEARCH_TITLE, "THE TITLE")
+
+        assert response.parameters == [[MID]]
+
+    def test_the_keyed_filters_and_limit_apply(self) -> None:
+        """ONLY_TAGS, EXCLUDE_TAGS and MAX_RESULTS apply"""
+        model = self._mailbox()
+        keyed = {
+            int(SearchTitleParam.ONLY_TAGS): [int(ServerTag.UNREAD)],
+            int(SearchTitleParam.EXCLUDE_TAGS): [int(ServerTag.IMPORTANT)],
+            int(SearchTitleParam.MAX_RESULTS): 5,
+        }
+
+        assert ask(model, RequestType.SEARCH_TITLE, "title", keyed=keyed).parameters == [[MID]]
+
+    @pytest.mark.parametrize(
+        ("request_type", "conflict_key"),
+        [
+            pytest.param(RequestType.SEARCH_TITLE, int(SearchTitleParam.ONLY_TAGS), id="title"),
+            pytest.param(RequestType.SEARCH_CONTENT, int(SearchContentParam.ONLY_TAGS), id="content"),
+        ],
+    )
+    def test_conflicting_filters_raises_an_error(self, request_type: int, conflict_key: int) -> None:
+        """The client specified the same tag in both ONLY_TAGS and EXCLUDE_TAGS"""
+        keyed = {conflict_key: [int(ServerTag.UNREAD)], conflict_key + 1: [int(ServerTag.UNREAD)]}
+        response = ask(self._mailbox(), request_type, "x", keyed=keyed)
+
+        assert type(response.error(request_type)) is ConflictingFiltersError
+        assert response.parameters[0][ErrorInfoKey.SPECIFIC_ERROR] == SearchTitleError.CONFLICTING_FILTERS
+
+    @pytest.mark.parametrize(
+        ("positional", "keyed"),
+        [
+            pytest.param([], {}, id="missing-query"),
+            pytest.param([7], {}, id="non-string-query"),
+            pytest.param(["x"], {int(SearchTitleParam.MAX_RESULTS): -1}, id="negative-limit"),
+            pytest.param(["x"], {int(SearchTitleParam.MAX_RESULTS): True}, id="bool-limit"),
+            pytest.param(["x"], {int(SearchTitleParam.ONLY_TAGS): ["tag"]}, id="string-tag"),
+        ],
+    )
+    def test_bad_parameters_are_bad_requests(self, positional: list[Any], keyed: dict[Any, Any]) -> None:
+        """Missing or mistyped SEARCH parameters answer BAD"""
+        response = ask(self._mailbox(), RequestType.SEARCH_TITLE, *positional, keyed=keyed)
+
+        assert response.status is ResponseStatus.BAD
 
 
 class TestWrites:

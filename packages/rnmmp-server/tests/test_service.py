@@ -28,6 +28,7 @@ from rnmmp_core import (
     Request,
     RequestType,
     Response,
+    SearchTitleParam,
     ServerTag,
     StateMismatchDetail,
     StateMismatchError,
@@ -232,6 +233,14 @@ class TestExchanges:
         (timestamps,) = client.ask(RequestType.FETCH_TIMESTAMP, [MID]).parameters
 
         assert timestamps == [datetime.datetime.fromtimestamp(1757900000.5, tz=datetime.UTC)]
+
+    def test_search_title_over_the_link(self, client: LinkClient) -> None:
+        """SEARCH runs end to end"""
+        response = client.ask(RequestType.SEARCH_TITLE, "THE TITLE")
+        assert response.parameters == [[MID]]
+
+        keyed = {int(SearchTitleParam.EXCLUDE_TAGS): [int(ServerTag.UNREAD)]}
+        assert client.ask(RequestType.SEARCH_TITLE, "THE TITLE", keyed=keyed).parameters == [[]]
 
     def test_an_unknown_request_type_is_unsupported(self, client: LinkClient) -> None:
         """A request type the server does not serve is refused as UNSUPPORTED, not dropped."""
