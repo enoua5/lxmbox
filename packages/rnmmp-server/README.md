@@ -10,3 +10,8 @@ Protocol definitions are shared with the client via [`rnmmp-core`](../rnmmp-core
 
 Contains the storage-agnostic mailbox model — Collections, State Tokens, delta sync — over a
 `Store` protocol with an in-memory reference backend. The Reticulum binding is not written yet.
+
+## Installation
+
+As the basic `rnmmp-server` package, RNS and LXMF are *not* installed, relying instead on system-wide installations.
+Use `rnmmp-server[rns]` to bring them into the local environment instead.

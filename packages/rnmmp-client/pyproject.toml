@@ -8,6 +8,12 @@ license = "MIT"
 authors = [{ name = "Enoua5" }]
 dependencies = [
     "rnmmp-core",
+]
+
+# Basic install uses system-wide Reticulum stack
+# The extra can be used for a venv-managed one
+[project.optional-dependencies]
+rns = [
     "rns>=1.4.2",
     "lxmf>=1.1.0",
 ]

@@ -62,7 +62,7 @@ Requires Python 3.13+ and `uv`.
 
 ```sh
 # From the repository root:
-uv sync --all-packages               # create the workspace environment
+uv sync --all-packages --all-extras  # create the workspace environment
 uv run pytest                        # run the test suite
 uv run ruff check .                  # lint
 uv run ruff format --check .         # check formatting
