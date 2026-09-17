@@ -14,11 +14,13 @@ import threading
 import uuid
 from collections.abc import Iterable, Mapping, Sequence
 from dataclasses import dataclass
+from itertools import islice
 from typing import Any, Final
 
 from rnmmp_core import (
     INITIAL_STATE_TOKEN,
     Collection,
+    ConflictingFiltersError,
     DuplicateTagNameError,
     InvalidMetadataKeyError,
     InvalidTagNameError,
@@ -136,6 +138,82 @@ class MailboxModel:
             present = self._store.existing_message_ids(requested)
             metadata = self._store.message_metadata(requested)
             return [metadata[message_id] if message_id in present else None for message_id in requested]
+
+    def search_title(
+        self,
+        query: str,
+        *,
+        only_tags: Iterable[int] | None = None,
+        exclude_tags: Iterable[int] | None = None,
+        max_results: int | None = None,
+    ) -> list[bytes]:
+        """
+        The ids of LXMF messages whose Title matches `query`, filtered and limited.
+
+        Raises:
+            ConflictingFiltersError: when a tag appears in both ONLY_TAGS and EXCLUDE_TAGS.
+        """
+        with self._lock:
+            only, exclude = self._get_search_filters(only_tags, exclude_tags)
+            matches = self._store.search_title(query, only_tags=only, exclude_tags=exclude)
+            return self._filter_matches(matches, only, exclude, max_results)
+
+    def search_content(
+        self,
+        query: str,
+        *,
+        only_tags: Iterable[int] | None = None,
+        exclude_tags: Iterable[int] | None = None,
+        max_results: int | None = None,
+    ) -> list[bytes]:
+        """
+        The ids of messages whose Content matches `query`, filtered and limited.
+
+        Raises:
+            ConflictingFiltersError: when a tag appears in both ONLY_TAGS and EXCLUDE_TAGS.
+        """
+        with self._lock:
+            only, exclude = self._get_search_filters(only_tags, exclude_tags)
+            matches = self._store.search_content(query, only_tags=only, exclude_tags=exclude)
+            return self._filter_matches(matches, only, exclude, max_results)
+
+    @staticmethod
+    def _get_search_filters(
+        only_tags: Iterable[int] | None, exclude_tags: Iterable[int] | None
+    ) -> tuple[set[int], set[int]]:
+        """The two tag filters as sets, refused when they overlap"""
+        only = {int(tag_id) for tag_id in only_tags or ()}
+        exclude = {int(tag_id) for tag_id in exclude_tags or ()}
+        if only & exclude:
+            raise ConflictingFiltersError()
+        return only, exclude
+
+    def _filter_matches(
+        self, candidates: Iterable[bytes], only: set[int], exclude: set[int], max_results: int | None
+    ) -> list[bytes]:
+        """
+        A match must carry all of ONLY_TAGS and none of EXCLUDE_TAGS; after which the limit applies.
+
+        Candidates are consumed in batches and only until the limit is filled, so a lazy store
+        is asked to produce no more than the answer needs.
+        """
+        if max_results is not None and max_results <= 0:
+            return []
+        results: list[bytes] = []
+        candidate_iterator = iter(candidates)
+        while True:
+            # Pull no more than the limit still needs.
+            # If filters drop candidates the loop simply pulls again.
+            take = 64 if max_results is None else min(64, max_results - len(results))
+            chunk = list(islice(candidate_iterator, take))
+            if not chunk:
+                return results
+            if only or exclude:
+                held = self._store.message_tags(chunk)
+                chunk = [mid for mid in chunk if only <= held[mid] and not (exclude & held[mid])]
+            results.extend(chunk)
+            if max_results is not None and len(results) >= max_results:
+                return results[:max_results]
 
     def current_states(self) -> dict[int, bytes]:
         """Every Collection's current State Token"""

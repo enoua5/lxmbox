@@ -19,6 +19,7 @@ from rnmmp_core import (
     Request,
     Response,
     RnmmpError,
+    SearchTitleParam,
     UnsupportedError,
     UploadParam,
     WriteParam,
@@ -175,6 +176,35 @@ def _fetch_metadata(model: MailboxModel, request: Request) -> Response:
     return Response.ok(request.request_id, model.metadata_of(message_ids))
 
 
+def _search_parameters(request: Request) -> tuple[str, list[int], list[int], int | None]:
+    """The parameters both SEARCH requests share; the two define identical keys"""
+    query = request.get_required(0, str, name="Query")
+    max_results = request.get_keyed(int(SearchTitleParam.MAX_RESULTS), int, name="MAX_RESULTS")
+    if max_results is not None and max_results < 0:
+        raise WrongTypeError(message="MAX_RESULTS must not be negative")
+    only = _int_items(
+        request.get_keyed(int(SearchTitleParam.ONLY_TAGS), list, name="ONLY_TAGS", default=[]), "ONLY_TAGS"
+    )
+    exclude = _int_items(
+        request.get_keyed(int(SearchTitleParam.EXCLUDE_TAGS), list, name="EXCLUDE_TAGS", default=[]), "EXCLUDE_TAGS"
+    )
+    return query, only, exclude, max_results
+
+
+def _search_title(model: MailboxModel, request: Request) -> Response:
+    """SEARCH_TITLE: the ids of LXMF messages whose Title matches the Query"""
+    query, only, exclude, max_results = _search_parameters(request)
+    matches = model.search_title(query, only_tags=only, exclude_tags=exclude, max_results=max_results)
+    return Response.ok(request.request_id, matches)
+
+
+def _search_content(model: MailboxModel, request: Request) -> Response:
+    """SEARCH_CONTENT: the ids of messages whose Content matches the Query"""
+    query, only, exclude, max_results = _search_parameters(request)
+    matches = model.search_content(query, only_tags=only, exclude_tags=exclude, max_results=max_results)
+    return Response.ok(request.request_id, matches)
+
+
 ############################################################################
 # Writes
 ############################################################################
@@ -274,6 +304,8 @@ _HANDLERS: dict[int, Handler] = {
     RequestType.FETCH_TITLE: _index_fetcher(lambda index: index.title),
     RequestType.FETCH_TAGS: _fetch_tags,
     RequestType.FETCH_METADATA: _fetch_metadata,
+    RequestType.SEARCH_TITLE: _search_title,
+    RequestType.SEARCH_CONTENT: _search_content,
     RequestType.UPLOAD: _upload,
     RequestType.DELETE: _delete,
     RequestType.CREATE_TAG: _create_tags,

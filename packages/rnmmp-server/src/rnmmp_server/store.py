@@ -11,13 +11,17 @@ The `MemoryStore` here is a reference backend, not intended for production use.
 from __future__ import annotations
 
 from collections import deque
-from collections.abc import Sequence
+from collections.abc import Iterable, Sequence
+from collections.abc import Set as AbstractSet
 from dataclasses import dataclass, field
+from itertools import batched
 from typing import Any, Final, Protocol
 
 from LXMF import LXMessage
 
 from rnmmp_core import INITIAL_STATE_TOKEN, MalformedExchangeError, unpack
+
+from . import lxmf_portions
 
 HEAD_LENGTH: Final[int] = 2 * LXMessage.DESTINATION_LENGTH + LXMessage.SIGNATURE_LENGTH
 """Destination hash, source hash and signature: the LXMF head"""
@@ -27,6 +31,7 @@ __all__ = [
     "LogEntry",
     "MemoryStore",
     "MessageIndex",
+    "ScanSearch",
     "StoredMessage",
     "Store",
 ]
@@ -216,6 +221,37 @@ class Store(Protocol):
         """Each requested message's metadata map; every requested id is a key, bare and unknown ids with an empty map"""
         ...
 
+    def search_title(
+        self, query: str, *, only_tags: AbstractSet[int], exclude_tags: AbstractSet[int]
+    ) -> Iterable[bytes]:
+        """
+        The ids of LXMF messages whose Title matches `query`, in any order.
+
+        Matching semantics are the backend's choice, though note:
+        - Lazy production is encouraged: the model stops consuming once it has enough filtered
+            matches, so a lazy backend does no more work than what was asked for.
+        - `ScanSearch` is both a reference implementation and can be used directly
+            if no better alternative exists for the backend.
+        - The tag filters are narrowing hints; a backend may use them to search an indexed subset or may ignore them.
+        - Over-returning is fine, since the model re-applies the filters
+        - The hints alone shouldn't filter any further than the reference;
+            the specification technically allows for it, but it makes for a bad implementation
+        """
+        ...
+
+    def search_content(
+        self, query: str, *, only_tags: AbstractSet[int], exclude_tags: AbstractSet[int]
+    ) -> Iterable[bytes]:
+        """
+        The ids of messages whose Content matches `query`
+
+        Non-LXMF messages are searched by their full content.
+
+        The tag filters are the same narrowing hints `search_title` takes, and lazy production
+        is encouraged the same way.
+        """
+        ...
+
     def current_token(self, collection: int) -> bytes:
         """The Collection's State Token; the Initial State Token if it has never changed"""
         ...
@@ -234,7 +270,68 @@ class Store(Protocol):
         ...
 
 
-class MemoryStore:
+_CONTENT_SCAN_BATCH: Final = 16
+"""Bodies loaded per step of the content scan"""
+
+
+def _fold(text: bytes) -> str:
+    """Bytes as casefolded text, undecodable sequences replaced"""
+    return text.decode("utf-8", errors="replace").casefold()
+
+
+class ScanSearch(Store):
+    """
+    The default search: an in-process scan built only on the store's own reads.
+
+    A backend can inherits this for compliant searching, or use overrides with something better-indexed.
+
+    The spec leaves matching semantics implementation-defined, requiring at minimum a
+    case-insensitive substring match — this implementation does only that.
+
+    Title search reads only the message index; content search uses a full content read.
+
+    WARNING: Subclassing does not runtime-check the rest of the `Store` surface,
+    but mypy enforces completeness wherever the store is used as a `Store`.
+    """
+
+    def search_title(
+        self, query: str, *, only_tags: AbstractSet[int], exclude_tags: AbstractSet[int]
+    ) -> Iterable[bytes]:
+        """Scan the index of the messages the filters allow"""
+        search_substring = query.casefold()
+        for index in self.message_index(self._filter_candidates(only_tags, exclude_tags)):
+            if index is not None and index.title is not None and search_substring in _fold(index.title):
+                yield index.message_id
+
+    def search_content(
+        self, query: str, *, only_tags: AbstractSet[int], exclude_tags: AbstractSet[int]
+    ) -> Iterable[bytes]:
+        """
+        Scan content: the Content portion for LXMF, the full bytes otherwise.
+
+        The filters are applied first, so bodies the filters rule out are never loaded — and
+        bodies load in small batches, so a consumer that stops early loads little more than it
+        consumed.
+        """
+        search_substring = query.casefold()
+        for chunk in batched(self._filter_candidates(only_tags, exclude_tags), _CONTENT_SCAN_BATCH, strict=False):
+            for record in self.get_messages(list(chunk)):
+                if record is None:
+                    continue
+                content = lxmf_portions.content(record.raw) if record.lxmf else record.raw
+                if content is not None and search_substring in _fold(content):
+                    yield record.message_id
+
+    def _filter_candidates(self, only_tags: AbstractSet[int], exclude_tags: AbstractSet[int]) -> list[bytes]:
+        """The ids that can satisfy the tag filters."""
+        message_ids = self.all_message_ids()
+        if not only_tags and not exclude_tags:
+            return message_ids
+        held = self.message_tags(message_ids)
+        return [mid for mid in message_ids if only_tags <= held[mid] and not (exclude_tags & held[mid])]
+
+
+class MemoryStore(ScanSearch):
     """
     An in-memory `Store` as a reference backend
 

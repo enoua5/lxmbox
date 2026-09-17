@@ -10,7 +10,7 @@ from .model import (
     UpdatedStates,
 )
 from .service import APP_NAME, MailboxService
-from .store import ChangeSet, LogEntry, MemoryStore, MessageIndex, Store, StoredMessage
+from .store import ChangeSet, LogEntry, MemoryStore, MessageIndex, ScanSearch, Store, StoredMessage
 
 __version__ = "0.0.0"
 
@@ -25,6 +25,7 @@ __all__ = [
     "MailboxService",
     "MemoryStore",
     "MessageIndex",
+    "ScanSearch",
     "Store",
     "StoredMessage",
     "TokenPair",
