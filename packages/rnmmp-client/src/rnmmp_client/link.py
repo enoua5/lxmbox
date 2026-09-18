@@ -46,6 +46,7 @@ __all__ = [
     "NoAnswer",
     "Unreachable",
     "UnreachableReason",
+    "VoidAnswer",
     "connect",
 ]
 
@@ -520,7 +521,7 @@ class MailboxLink:
             keyed_parameters[int(SearchTitleParam.EXCLUDE_TAGS)] = [int(tag) for tag in exclude_tags]
 
         only: set[int] = set(keyed_parameters.get(int(SearchTitleParam.ONLY_TAGS), []))
-        exclude: set[int] = set(keyed_parameters.get(int(SearchTitleParam.ONLY_TAGS), []))
+        exclude: set[int] = set(keyed_parameters.get(int(SearchTitleParam.EXCLUDE_TAGS), []))
         if only & exclude:
             # Don't bother the server with a request we know will error
             raise ConflictingFiltersError()

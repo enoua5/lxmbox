@@ -1,4 +1,4 @@
-"""Smoke tests for the rnmmp_client package."""
+"""Smoke tests for the rnmmp_client package"""
 
 
 def test_package_imports() -> None:

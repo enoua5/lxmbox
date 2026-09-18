@@ -7,6 +7,7 @@ from .link import (
     NoAnswer,
     Unreachable,
     UnreachableReason,
+    VoidAnswer,
     connect,
 )
 from .response_types import (
@@ -35,6 +36,7 @@ __all__ = [
     "TokenChange",
     "Unreachable",
     "UnreachableReason",
+    "VoidAnswer",
     "UpdatedStates",
     "UploadResult",
     "__version__",
