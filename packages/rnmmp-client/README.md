@@ -12,7 +12,6 @@ and writes with optimistic concurrency (`IF_IN_STATE`).
 Standalone — usable on its own against any rnmmp server, independent of the lxmbox daemon and frontend.
 Protocol definitions are shared with the server via [`rnmmp-core`](../rnmmp-core).
 
-Scaffold only; see the workspace root `README.md` for status.
 
 ## Installation
 

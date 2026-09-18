@@ -26,15 +26,26 @@ from dataclasses import dataclass, field
 from typing import Any, ClassVar, overload, override
 
 from ._utils import TypeSpec, TypeSpecTuple, assert_parameter_type
-from .codes import ErrorInfoKey, ExchangeType, NotificationType, RequestType, ResponseStatus
-from .errors import _SPECIFIC_CODE_FOR, IncompleteRequestError, MalformedExchangeError, RnmmpError
+from .codes import (
+    ErrorInfoKey,
+    ExchangeType,
+    NotificationType,
+    RequestType,
+    ResponseStatus,
+)
+from .errors import (
+    _SPECIFIC_CODE_FOR,
+    IncompleteRequestError,
+    MalformedExchangeError,
+    RnmmpError,
+)
 from .msgpack import pack, unpack
 
 __all__ = [
     "Exchange",
+    "Notification",
     "Request",
     "Response",
-    "Notification",
     "UnknownExchange",
 ]
 
@@ -358,6 +369,14 @@ class Response(Exchange):
         # An unrecognised status still means the request was not performed; default it to `NO`.
         status = ResponseStatus(self.status) if self.status in ResponseStatus else ResponseStatus.NO
         return RnmmpError.unpackage_from_dict(status, info, request_type)
+
+    def raise_for_error(self, request_type: int | None = None) -> None:
+        """
+        If the Response represents an error, raise that error, otherwise do nothing
+        """
+        error = self.error(request_type)
+        if error:
+            raise error
 
     @override
     def to_array(self) -> list[Any]:

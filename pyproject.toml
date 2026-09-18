@@ -76,6 +76,7 @@ files = [
     "packages/rnmmp-core/tests",
     "packages/rnmmp-server/src",
     "packages/rnmmp-server/tests",
+    "packages/rnmmp-client/src",
 ]
 mypy_path = [
     "stubs",
