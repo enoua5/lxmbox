@@ -1,12 +1,12 @@
 """A basic rnmmp-server Store binding that saves messages to disk"""
 
-import json
 from base64 import urlsafe_b64encode
-from collections.abc import Sequence
+from collections.abc import Callable, Generator, Sequence
+from contextlib import contextmanager
 from pathlib import Path
-from typing import Any
+from typing import Any, cast
 
-from rnmmp_core import INITIAL_STATE_TOKEN
+from rnmmp_core import INITIAL_STATE_TOKEN, pack, unpack
 from rnmmp_server import ChangeSet, LogEntry, MessageIndex, ScanSearch, StoredMessage
 
 from .config import Config
@@ -20,62 +20,83 @@ class FileStore(ScanSearch):
 
         self._path = config.storage_path
         self._path.mkdir(parents=True, exist_ok=True)
-        # Just JSONs for the example — a database would probably be better
-        self._mail_list_path = self._path / "mail_list.json"
-        self._tag_list_path = self._path / "tag_list.json"
-        self._message_tag_path = self._path / "message_tag.json"
-        self._metadata_path = self._path / "metadata.json"
-        self._token_path = self._path / "token.json"
-        # self._log_path = self._path / "log.json"
+        # Just msgpack files for the example — a database would probably be better.
+        self._mail_list_path = self._path / "mail_list.msgpack"
+        self._tag_list_path = self._path / "tag_list.msgpack"
+        self._message_tag_path = self._path / "message_tag.msgpack"
+        self._metadata_path = self._path / "metadata.msgpack"
+        self._token_path = self._path / "token.msgpack"
+        # self._log_path = self._path / "log.msgpack"
         self._log_limit = log_limit
 
         self._mail_path = self._path / "mail"
         self._mail_path.mkdir(parents=True, exist_ok=True)
 
-    def _load_json_dict(self, path: Path) -> dict[str, Any]:
-        """Load JSON from file"""
+    def _load_state[T](self, path: Path, default: T) -> T:
+        """Load one msgpack state file, `default` when it does not exist yet"""
         try:
-            with open(path) as f:
-                data: dict[str, Any] = json.load(f)
-                return data
-        except Exception:
-            return {}
+            return cast(T, unpack(path.read_bytes()))
+        except FileNotFoundError:
+            return default
+
+    @contextmanager
+    def _staged_writes(self) -> Generator[Callable[[Path, bytes], None]]:
+        """
+        Stage file writes, then commit all changes at the end of the block.
+
+        This is to prevent a crash from causing a partial state update.
+        """
+        staged: list[tuple[Path, Path]] = []
+
+        def stage(path: Path, data: bytes) -> None:
+            scratch = path.with_name(path.name + ".tmp")
+            scratch.write_bytes(data)
+            staged.append((scratch, path))
+
+        try:
+            yield stage
+        except BaseException:
+            for scratch, _ in staged:
+                scratch.unlink(missing_ok=True)
+            raise
+        for scratch, path in staged:
+            scratch.replace(path)
+
+    def _get_file_path(self, message_id: bytes) -> Path:
+        """The file a message's raw content lives in"""
+        filename = urlsafe_b64encode(message_id).replace(b"=", b"").decode()
+        return self._mail_path / filename
 
     def get_all_message_ids(self) -> list[bytes]:
         """Every message id in the MAIL_LIST Collection"""
 
-        messages = self._load_json_dict(self._mail_list_path)
-        return [bytes.fromhex(message_id) for message_id in messages]
+        messages: dict[bytes, Any] = self._load_state(self._mail_list_path, {})
+        return list(messages)
 
     def get_existing_message_ids(self, message_ids: Sequence[bytes]) -> set[bytes]:
         """The subset of the requested ids present in the MAIL_LIST Collection"""
-        all_message_ids = self.get_all_message_ids()
+        all_message_ids = set(self.get_all_message_ids())
         return {message_id for message_id in message_ids if message_id in all_message_ids}
 
     def get_message_indexes(self, message_ids: Sequence[bytes]) -> list[MessageIndex | None]:
         """The index records, in the order requested, `None` for each id not present; content untouched"""
 
-        data = self._load_json_dict(self._mail_list_path)
+        data: dict[bytes, dict[str, Any]] = self._load_state(self._mail_list_path, {})
 
         results: list[MessageIndex | None] = []
         for message_id in message_ids:
-            index: dict[str, Any] | None = data.get(message_id.hex(), None)
+            index = data.get(message_id)
             if index is None:
                 results.append(None)
                 continue
-
-            assert isinstance(index, dict)
-
-            head = None if index.get("head") is None else bytes.fromhex(index["head"])
-            title = None if index.get("title") is None else bytes.fromhex(index["title"])
 
             results.append(
                 MessageIndex(
                     message_id=message_id,
                     lxmf=index.get("lxmf", False),
-                    head=head,
+                    head=index.get("head"),
                     timestamp=index.get("timestamp"),
-                    title=title,
+                    title=index.get("title"),
                 )
             )
 
@@ -92,12 +113,8 @@ class FileStore(ScanSearch):
                 results.append(None)
                 continue
 
-            filename = urlsafe_b64encode(index.message_id).replace(b"=", b"").decode()
-            try:
-                with open(self._mail_path / filename, "rb") as f:
-                    raw = f.read()
-            except Exception:
-                raw = b"<missing message>"
+            # Might raise — will need to configure handling in actual server
+            raw = self._get_file_path(index.message_id).read_bytes()
 
             results.append(index.as_stored_message(raw))
 
@@ -105,40 +122,37 @@ class FileStore(ScanSearch):
 
     def get_all_tags(self) -> dict[int, str]:
         """The TAG_LIST Collection: every tag id and its name, Server-Defined Tags included"""
-        data = self._load_json_dict(self._tag_list_path)
-        return {int(key): value for key, value in data.items()}
+        return self._load_state(self._tag_list_path, {})
 
     def get_message_tags(self, message_ids: Sequence[bytes]) -> dict[bytes, set[int]]:
         """The tag ids on each requested message; every requested id is a key, empty for untagged and unknown ids"""
-        tag_pairs: list[tuple[str, int]] = self._load_json_dict(self._message_tag_path).get("tags", [])
+        tag_pairs: list[tuple[bytes, int]] = self._load_state(self._message_tag_path, [])
 
         message_tags: dict[bytes, set[int]] = {message_id: set() for message_id in message_ids}
         for message_id, tag_id in tag_pairs:
-            message_id_bytes = bytes.fromhex(message_id)
-            if message_id_bytes in message_tags:
-                message_tags[message_id_bytes].add(tag_id)
+            if message_id in message_tags:
+                message_tags[message_id].add(tag_id)
         return message_tags
 
     def get_messages_with_tags(self, tag_ids: Sequence[int]) -> dict[int, set[bytes]]:
         """The message ids carrying each requested tag; every requested id is a key, empty for unused and unknown ids"""
-        tag_pairs: list[tuple[str, int]] = self._load_json_dict(self._message_tag_path).get("tags", [])
+        tag_pairs: list[tuple[bytes, int]] = self._load_state(self._message_tag_path, [])
 
         tag_messages: dict[int, set[bytes]] = {tag_id: set() for tag_id in tag_ids}
         for message_id, tag_id in tag_pairs:
             if tag_id in tag_messages:
-                tag_messages[tag_id].add(bytes.fromhex(message_id))
+                tag_messages[tag_id].add(message_id)
         return tag_messages
 
     def get_message_metadata(self, message_ids: Sequence[bytes]) -> dict[bytes, dict[Any, Any]]:
         """Each requested message's metadata map; every requested id is a key, bare and unknown ids with an empty map"""
-        metadata = self._load_json_dict(self._metadata_path)
-        return {message_id: dict(metadata.get(message_id.hex(), {})) for message_id in message_ids}
+        metadata: dict[bytes, dict[Any, Any]] = self._load_state(self._metadata_path, {})
+        return {message_id: dict(metadata.get(message_id, {})) for message_id in message_ids}
 
     def get_current_token(self, collection: int) -> bytes:
         """The Collection's State Token; the Initial State Token if it has never changed"""
-        tokens = self._load_json_dict(self._token_path)
-        token: str | None = tokens.get(str(collection))
-        return INITIAL_STATE_TOKEN if token is None else bytes.fromhex(token)
+        tokens: dict[int, bytes] = self._load_state(self._token_path, {})
+        return tokens.get(collection, INITIAL_STATE_TOKEN)
 
     def get_entries_since(self, collection: int, token: bytes) -> list[LogEntry] | None:
         """
@@ -151,7 +165,7 @@ class FileStore(ScanSearch):
         if token == self.get_current_token(collection):
             return []
 
-        # logs = self._load_json_dict(self._log_path)
+        # logs = self._load_state(self._log_path, {})
 
         # log: list[dict[str, Any]] = logs.get(str(collection), [])
         # for index, entry in enumerate(log):
@@ -175,57 +189,51 @@ class FileStore(ScanSearch):
         # TODO this one is maybe a bit complex
         # probably separate applications would be better
 
-        messages = self._load_json_dict(self._mail_list_path)
-        metadata = self._load_json_dict(self._metadata_path)
-        tag_pairs: set[tuple[str, int]] = {
-            (message_id, tag_id) for message_id, tag_id in self._load_json_dict(self._message_tag_path).get("tags", [])
-        }
-        tags = self._load_json_dict(self._tag_list_path)
-        tokens = self._load_json_dict(self._token_path)
+        messages: dict[bytes, dict[str, Any]] = self._load_state(self._mail_list_path, {})
+        metadata: dict[bytes, dict[Any, Any]] = self._load_state(self._metadata_path, {})
+        loaded_pairs: list[tuple[bytes, int]] = self._load_state(self._message_tag_path, [])
+        tag_pairs = {(message_id, tag_id) for message_id, tag_id in loaded_pairs}
+        tags: dict[int, str] = self._load_state(self._tag_list_path, {})
+        tokens: dict[int, bytes] = self._load_state(self._token_path, {})
 
-        for message in changes.messages_added:
-            messages[message.message_id.hex()] = {
-                "head": message.head.hex() if message.head is not None else None,
-                "title": message.title.hex() if message.title is not None else None,
-                "timestamp": message.timestamp,
-                "lxmf": message.lxmf,
-            }
-            with open(self._mail_path / message.message_id.hex(), "wb") as f:
-                f.write(message.raw)
+        with self._staged_writes() as stage:
+            for message in changes.messages_added:
+                messages[message.message_id] = {
+                    "head": message.head,
+                    "title": message.title,
+                    "timestamp": message.timestamp,
+                    "lxmf": message.lxmf,
+                }
+                stage(self._get_file_path(message.message_id), message.raw)
 
-        for message_id in changes.message_ids_deleted:
-            messages.pop(message_id.hex(), None)
-            metadata.pop(message_id.hex(), None)
-            tag_pairs = {pair for pair in tag_pairs if pair[0] != message_id.hex()}
+            for message_id in changes.message_ids_deleted:
+                messages.pop(message_id, None)
+                metadata.pop(message_id, None)
+                tag_pairs = {pair for pair in tag_pairs if pair[0] != message_id}
 
-        tags.update({str(key): value for key, value in changes.tags_created.items()})
-        tags.update({str(key): value for key, value in changes.tags_renamed.items()})
-        for tag_id in changes.tag_ids_deleted:
-            tags.pop(str(tag_id), None)
-            tag_pairs = {pair for pair in tag_pairs if pair[1] != tag_id}
+            tags.update(changes.tags_created)
+            tags.update(changes.tags_renamed)
+            for tag_id in changes.tag_ids_deleted:
+                tags.pop(tag_id, None)
+                tag_pairs = {pair for pair in tag_pairs if pair[1] != tag_id}
 
-        tag_pairs.update([(message_id.hex(), tag_id) for message_id, tag_id in changes.tag_pairs_added])
-        tag_pairs.difference_update([(message_id.hex(), tag_id) for message_id, tag_id in changes.tag_pairs_removed])
+            tag_pairs.update(changes.tag_pairs_added)
+            tag_pairs.difference_update(changes.tag_pairs_removed)
 
-        for message_id, entries in changes.metadata_set.items():
-            metadata.setdefault(message_id.hex(), {}).update(entries)
-        for message_id, keys in changes.metadata_keys_removed.items():
-            item_metadata: dict[str, Any] = metadata.get(message_id.hex(), {})
-            for key in keys:
-                item_metadata.pop(key, None)
+            for message_id, entries in changes.metadata_set.items():
+                metadata.setdefault(message_id, {}).update(entries)
+            for message_id, keys in changes.metadata_keys_removed.items():
+                item_metadata = metadata.get(message_id, {})
+                for key in keys:
+                    item_metadata.pop(key, None)
 
-        tokens.update({str(collection_id): token.hex() for collection_id, token in changes.new_tokens.items()})
+            tokens.update(changes.new_tokens)
 
-        # for collection, entry in changes.log_entries.items():
-        #     self._logs.setdefault(collection, deque(maxlen=self._log_limit)).append(entry)
+            # for collection, entry in changes.log_entries.items():
+            #     self._logs.setdefault(collection, deque(maxlen=self._log_limit)).append(entry)
 
-        with open(self._mail_list_path, "w") as f:
-            json.dump(messages, f)
-        with open(self._metadata_path, "w") as f:
-            json.dump(metadata, f)
-        with open(self._message_tag_path, "w") as f:
-            json.dump({"tags": [list(pair) for pair in tag_pairs]}, f)
-        with open(self._tag_list_path, "w") as f:
-            json.dump(tags, f)
-        with open(self._token_path, "w") as f:
-            json.dump(tokens, f)
+            stage(self._mail_list_path, pack(messages))
+            stage(self._metadata_path, pack(metadata))
+            stage(self._message_tag_path, pack(list(tag_pairs)))
+            stage(self._tag_list_path, pack(tags))
+            stage(self._token_path, pack(tokens))
