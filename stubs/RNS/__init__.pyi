@@ -6,7 +6,7 @@ They only cover what this workspace touches, so it's not meant for use outside o
 """
 
 from collections.abc import Callable
-from typing import BinaryIO
+from typing import BinaryIO, Literal
 
 LOG_CRITICAL: int
 LOG_ERROR: int
@@ -18,10 +18,16 @@ LOG_DEBUG: int
 LOG_EXTREME: int
 
 def log(msg: str, level: int = ...) -> None: ...
+def exit(code: int = 0) -> None: ...
+def prettyhexrep(data: bytes) -> str: ...
 
 class Identity:
+    TRUNCATED_HASHLENGTH: int
     hash: bytes
     def __init__(self, create_keys: bool = True) -> None: ...
+    @staticmethod
+    def from_file(path: str) -> Identity | None: ...
+    def to_file(self, path: str) -> Literal[True] | None: ...
     def get_private_key(self) -> bytes: ...
     @staticmethod
     def from_bytes(prv_bytes: bytes) -> Identity | None: ...
@@ -90,6 +96,7 @@ class Resource:
 
 class Reticulum:
     MTU: int
+    identitypath: str
     def __init__(
         self,
         configdir: str | None = None,

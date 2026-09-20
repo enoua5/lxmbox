@@ -55,6 +55,17 @@ class MessageIndex:
     title: bytes | None
     """The LXMF Title"""
 
+    def as_stored_message(self, raw: bytes) -> StoredMessage:
+        """Bundle with message body"""
+        return StoredMessage(
+            message_id=self.message_id,
+            lxmf=self.lxmf,
+            head=self.head,
+            timestamp=self.timestamp,
+            title=self.title,
+            raw=raw,
+        )
+
 
 @dataclass(frozen=True, slots=True)
 class StoredMessage:
@@ -187,15 +198,15 @@ class Store(Protocol):
     the model serializes writes, so a backend never sees two concurrent `apply` calls for one mailbox.
     """
 
-    def all_message_ids(self) -> list[bytes]:
+    def get_all_message_ids(self) -> list[bytes]:
         """Every message id in the MAIL_LIST Collection"""
         ...
 
-    def existing_message_ids(self, message_ids: Sequence[bytes]) -> set[bytes]:
+    def get_existing_message_ids(self, message_ids: Sequence[bytes]) -> set[bytes]:
         """The subset of the requested ids present in the MAIL_LIST Collection"""
         ...
 
-    def message_index(self, message_ids: Sequence[bytes]) -> list[MessageIndex | None]:
+    def get_message_indexes(self, message_ids: Sequence[bytes]) -> list[MessageIndex | None]:
         """The index records, in the order requested, `None` for each id not present; content untouched"""
         ...
 
@@ -205,19 +216,19 @@ class Store(Protocol):
         """
         ...
 
-    def all_tags(self) -> dict[int, str]:
+    def get_all_tags(self) -> dict[int, str]:
         """The TAG_LIST Collection: every tag id and its name, Server-Defined Tags included"""
         ...
 
-    def message_tags(self, message_ids: Sequence[bytes]) -> dict[bytes, set[int]]:
+    def get_message_tags(self, message_ids: Sequence[bytes]) -> dict[bytes, set[int]]:
         """The tag ids on each requested message; every requested id is a key, empty for untagged and unknown ids"""
         ...
 
-    def messages_with_tags(self, tag_ids: Sequence[int]) -> dict[int, set[bytes]]:
+    def get_messages_with_tags(self, tag_ids: Sequence[int]) -> dict[int, set[bytes]]:
         """The message ids carrying each requested tag; every requested id is a key, empty for unused and unknown ids"""
         ...
 
-    def message_metadata(self, message_ids: Sequence[bytes]) -> dict[bytes, dict[Any, Any]]:
+    def get_message_metadata(self, message_ids: Sequence[bytes]) -> dict[bytes, dict[Any, Any]]:
         """Each requested message's metadata map; every requested id is a key, bare and unknown ids with an empty map"""
         ...
 
@@ -252,11 +263,11 @@ class Store(Protocol):
         """
         ...
 
-    def current_token(self, collection: int) -> bytes:
+    def get_current_token(self, collection: int) -> bytes:
         """The Collection's State Token; the Initial State Token if it has never changed"""
         ...
 
-    def entries_since(self, collection: int, token: bytes) -> list[LogEntry] | None:
+    def get_entries_since(self, collection: int, token: bytes) -> list[LogEntry] | None:
         """
         The change-log entries after `token`, oldest first.
 
@@ -299,7 +310,7 @@ class ScanSearch(Store):
     ) -> Iterable[bytes]:
         """Scan the index of the messages the filters allow"""
         search_substring = query.casefold()
-        for index in self.message_index(self._filter_candidates(only_tags, exclude_tags)):
+        for index in self.get_message_indexes(self._filter_candidates(only_tags, exclude_tags)):
             if index is not None and index.title is not None and search_substring in _fold(index.title):
                 yield index.message_id
 
@@ -324,10 +335,10 @@ class ScanSearch(Store):
 
     def _filter_candidates(self, only_tags: AbstractSet[int], exclude_tags: AbstractSet[int]) -> list[bytes]:
         """The ids that can satisfy the tag filters."""
-        message_ids = self.all_message_ids()
+        message_ids = self.get_all_message_ids()
         if not only_tags and not exclude_tags:
             return message_ids
-        held = self.message_tags(message_ids)
+        held = self.get_message_tags(message_ids)
         return [mid for mid in message_ids if only_tags <= held[mid] and not (exclude_tags & held[mid])]
 
 
@@ -351,15 +362,15 @@ class MemoryStore(ScanSearch):
         self._logs: dict[int, deque[LogEntry]] = {}
         self._log_limit = log_limit
 
-    def all_message_ids(self) -> list[bytes]:
+    def get_all_message_ids(self) -> list[bytes]:
         """Every message id, in insertion order"""
         return list(self._messages)
 
-    def existing_message_ids(self, message_ids: Sequence[bytes]) -> set[bytes]:
+    def get_existing_message_ids(self, message_ids: Sequence[bytes]) -> set[bytes]:
         """The subset of the requested ids that exist"""
         return {message_id for message_id in message_ids if message_id in self._messages}
 
-    def message_index(self, message_ids: Sequence[bytes]) -> list[MessageIndex | None]:
+    def get_message_indexes(self, message_ids: Sequence[bytes]) -> list[MessageIndex | None]:
         """The index projections, in the order requested"""
         return [record.index() if (record := self._messages.get(message_id)) else None for message_id in message_ids]
 
@@ -367,37 +378,37 @@ class MemoryStore(ScanSearch):
         """The stored messages, in the order requested"""
         return [self._messages.get(message_id) for message_id in message_ids]
 
-    def all_tags(self) -> dict[int, str]:
+    def get_all_tags(self) -> dict[int, str]:
         """A copy of the tag table"""
         return dict(self._tags)
 
-    def message_tags(self, message_ids: Sequence[bytes]) -> dict[bytes, set[int]]:
+    def get_message_tags(self, message_ids: Sequence[bytes]) -> dict[bytes, set[int]]:
         """The tag ids on each requested message"""
-        held: dict[bytes, set[int]] = {message_id: set() for message_id in message_ids}
+        message_tags: dict[bytes, set[int]] = {message_id: set() for message_id in message_ids}
         for message_id, tag_id in self._tag_pairs:
-            if message_id in held:
-                held[message_id].add(tag_id)
-        return held
+            if message_id in message_tags:
+                message_tags[message_id].add(tag_id)
+        return message_tags
 
-    def messages_with_tags(self, tag_ids: Sequence[int]) -> dict[int, set[bytes]]:
+    def get_messages_with_tags(self, tag_ids: Sequence[int]) -> dict[int, set[bytes]]:
         """The message ids carrying each requested tag"""
-        carriers: dict[int, set[bytes]] = {tag_id: set() for tag_id in tag_ids}
+        tag_messages: dict[int, set[bytes]] = {tag_id: set() for tag_id in tag_ids}
         for message_id, tag_id in self._tag_pairs:
-            if tag_id in carriers:
-                carriers[tag_id].add(message_id)
-        return carriers
+            if tag_id in tag_messages:
+                tag_messages[tag_id].add(message_id)
+        return tag_messages
 
-    def message_metadata(self, message_ids: Sequence[bytes]) -> dict[bytes, dict[Any, Any]]:
+    def get_message_metadata(self, message_ids: Sequence[bytes]) -> dict[bytes, dict[Any, Any]]:
         """A copy of each requested message's metadata map"""
         return {message_id: dict(self._metadata.get(message_id, {})) for message_id in message_ids}
 
-    def current_token(self, collection: int) -> bytes:
+    def get_current_token(self, collection: int) -> bytes:
         """The Collection's State Token"""
         return self._tokens.get(collection, INITIAL_STATE_TOKEN)
 
-    def entries_since(self, collection: int, token: bytes) -> list[LogEntry] | None:
+    def get_entries_since(self, collection: int, token: bytes) -> list[LogEntry] | None:
         """The change-log entries after `token`, oldest first; `None` when the token is unknown"""
-        if token == self.current_token(collection):
+        if token == self.get_current_token(collection):
             return []
         log = self._logs.get(collection, ())
         for index, entry in enumerate(log):

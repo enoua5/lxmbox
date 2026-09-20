@@ -17,6 +17,9 @@ from dataclasses import dataclass
 from itertools import islice
 from typing import Any, Final
 
+import LXMF
+import RNS
+
 from rnmmp_core import (
     INITIAL_STATE_TOKEN,
     Collection,
@@ -95,7 +98,9 @@ class MailboxModel:
         """
         self._store = store
         self._lock = threading.Lock()
-        missing = {tag_id: name for tag_id, name in SERVER_DEFINED_TAG_NAMES.items() if tag_id not in store.all_tags()}
+        missing = {
+            tag_id: name for tag_id, name in SERVER_DEFINED_TAG_NAMES.items() if tag_id not in store.get_all_tags()
+        }
         if missing:
             store.apply(ChangeSet(tags_created=missing))
 
@@ -106,7 +111,7 @@ class MailboxModel:
     def message_ids(self) -> list[bytes]:
         """The MAIL_LIST Collection"""
         with self._lock:
-            return self._store.all_message_ids()
+            return self._store.get_all_message_ids()
 
     def get_messages(self, message_ids: Iterable[bytes]) -> list[StoredMessage | None]:
         """The stored messages, in the order requested, `None` for each id not present"""
@@ -116,27 +121,27 @@ class MailboxModel:
     def index_of(self, message_ids: Iterable[bytes]) -> list[MessageIndex | None]:
         """Each message's index record (non-content fields) in the order requested, `None` for missing"""
         with self._lock:
-            return self._store.message_index(list(message_ids))
+            return self._store.get_message_indexes(list(message_ids))
 
     def tags(self) -> dict[int, str]:
         """The TAG_LIST Collection"""
         with self._lock:
-            return self._store.all_tags()
+            return self._store.get_all_tags()
 
     def tags_of(self, message_ids: Iterable[bytes]) -> list[list[int] | None]:
         """Each message's tag ids, in the order requested: `None` for a missing message, `[]` for an untagged one"""
         with self._lock:
             requested = list(message_ids)
-            present = self._store.existing_message_ids(requested)
-            held = self._store.message_tags(requested)
+            present = self._store.get_existing_message_ids(requested)
+            held = self._store.get_message_tags(requested)
             return [sorted(held[message_id]) if message_id in present else None for message_id in requested]
 
     def metadata_of(self, message_ids: Iterable[bytes]) -> list[dict[Any, Any] | None]:
         """Each message's metadata map, in the order requested: `None` for a missing message, `{}` for a bare one"""
         with self._lock:
             requested = list(message_ids)
-            present = self._store.existing_message_ids(requested)
-            metadata = self._store.message_metadata(requested)
+            present = self._store.get_existing_message_ids(requested)
+            metadata = self._store.get_message_metadata(requested)
             return [metadata[message_id] if message_id in present else None for message_id in requested]
 
     def search_title(
@@ -209,7 +214,7 @@ class MailboxModel:
             if not chunk:
                 return results
             if only or exclude:
-                held = self._store.message_tags(chunk)
+                held = self._store.get_message_tags(chunk)
                 chunk = [mid for mid in chunk if only <= held[mid] and not (exclude & held[mid])]
             results.extend(chunk)
             if max_results is not None and len(results) >= max_results:
@@ -218,7 +223,7 @@ class MailboxModel:
     def current_states(self) -> dict[int, bytes]:
         """Every Collection's current State Token"""
         with self._lock:
-            return {int(collection): self._store.current_token(collection) for collection in Collection}
+            return {int(collection): self._store.get_current_token(collection) for collection in Collection}
 
     def sync(self, collection: int, last_known: bytes) -> tuple[dict[Any, Any], bytes]:
         """
@@ -232,12 +237,12 @@ class MailboxModel:
         with self._lock:
             if collection not in Collection:
                 raise UnknownCollectionError()
-            token = self._store.current_token(collection)
+            token = self._store.get_current_token(collection)
             if last_known == INITIAL_STATE_TOKEN:
                 return self._full_delta(collection), token
             if last_known == token:
                 return self._empty_delta(collection), token
-            entries = self._store.entries_since(collection, last_known)
+            entries = self._store.get_entries_since(collection, last_known)
             if entries is None:
                 raise UnknownStateError()
             return self._folded_delta(collection, entries), token
@@ -245,6 +250,39 @@ class MailboxModel:
     ############################################################################
     # Writes
     ############################################################################
+
+    def ingest_raw(
+        self,
+        message: bytes,
+    ) -> UpdatedStates:
+        """Ingest a raw non-LXMF message"""
+
+        # TODO we're already requiring a Store to not re-derive LXMF fields
+        # Maybe `ingest_raw` should take `title`, `timestamp`, `metadata`, etc
+        # in case an incoming message is, say, MIME and has close approximates to those fields
+        # Will take a spec update though, I think
+
+        return self.ingest(
+            uuid.uuid4().bytes,
+            message,
+            lxmf=False,
+        )
+
+    def ingest_lxmf(
+        self,
+        message: LXMF.LXMessage,
+    ) -> UpdatedStates:
+        """Ingest a delivered LXMF message into the mailbox"""
+
+        if not message.packed:
+            message.pack()
+            assert message.packed
+
+        return self.ingest(
+            message.message_id,
+            message.packed,
+            lxmf=True,
+        )
 
     def ingest(
         self,
@@ -265,7 +303,8 @@ class MailboxModel:
             UnknownTagError: for a tag id not in the TAG_LIST Collection.
         """
         with self._lock:
-            if self._store.existing_message_ids([message_id]):
+            RNS.log(f"Message {message_id.hex()} ingested")
+            if self._store.get_existing_message_ids([message_id]):
                 return {}
             tag_ids = {int(tag_id) for tag_id in tags}
             self._require_tags(tag_ids)
@@ -344,12 +383,12 @@ class MailboxModel:
         with self._lock:
             self._check_state(if_in_state)
             requested = list(dict.fromkeys(message_ids))
-            existing = self._store.existing_message_ids(requested)
+            existing = self._store.get_existing_message_ids(requested)
             present = [message_id for message_id in requested if message_id in existing]
             changes = ChangeSet(message_ids_deleted=list(present))
             priors: dict[int, dict[Any, Any]] = {int(Collection.MAIL_LIST): dict.fromkeys(present, True)}
-            held = self._store.message_tags(present)
-            held_metadata = self._store.message_metadata(present)
+            held = self._store.get_message_tags(present)
+            held_metadata = self._store.get_message_metadata(present)
             pair_priors: dict[Any, Any] = {mid: frozenset(held[mid]) for mid in present if held[mid]}
             metadata_priors: dict[Any, Any] = {mid: held_metadata[mid] for mid in present if held_metadata[mid]}
             if pair_priors:
@@ -382,7 +421,7 @@ class MailboxModel:
             for name in requested:
                 if not _valid_tag_name(name):
                     raise InvalidTagNameError()
-            existing = self._store.all_tags()
+            existing = self._store.get_all_tags()
             by_folded = {name.casefold(): tag_id for tag_id, name in existing.items()}
             next_id = max((tag_id for tag_id in existing if tag_id > 0), default=0) + 1
 
@@ -419,7 +458,7 @@ class MailboxModel:
             requested = list(dict.fromkeys(int(tag_id) for tag_id in tag_ids))
             if any(tag_id < 0 for tag_id in requested):
                 raise ServerDefinedTagError()
-            existing = self._store.all_tags()
+            existing = self._store.get_all_tags()
             present = [tag_id for tag_id in requested if tag_id in existing]
             if not present:
                 return {}
@@ -428,9 +467,9 @@ class MailboxModel:
             priors: dict[int, dict[Any, Any]] = {
                 int(Collection.TAG_LIST): {tag_id: existing[tag_id] for tag_id in present}
             }
-            carriers = self._store.messages_with_tags(present)
+            carriers = self._store.get_messages_with_tags(present)
             affected = list({message_id for message_ids in carriers.values() for message_id in message_ids})
-            held = self._store.message_tags(affected)
+            held = self._store.get_message_tags(affected)
             pair_priors: dict[Any, Any] = {message_id: frozenset(held[message_id]) for message_id in affected}
             if pair_priors:
                 priors[int(Collection.MESSAGE_TAG)] = pair_priors
@@ -453,7 +492,7 @@ class MailboxModel:
         """
         with self._lock:
             self._check_state(if_in_state)
-            existing = self._store.all_tags()
+            existing = self._store.get_all_tags()
             for tag_id, name in renames.items():
                 if tag_id < 0:
                     raise ServerDefinedTagError()
@@ -519,7 +558,7 @@ class MailboxModel:
 
             changes = ChangeSet()
             priors: dict[Any, Any] = {}
-            current_metadata = self._store.message_metadata(list(entries))
+            current_metadata = self._store.get_message_metadata(list(entries))
             for message_id, entry in entries.items():
                 current = current_metadata[message_id]
                 effective = {key: value for key, value in entry.items() if key not in current or current[key] != value}
@@ -552,7 +591,7 @@ class MailboxModel:
 
             changes = ChangeSet()
             priors: dict[Any, Any] = {}
-            current_metadata = self._store.message_metadata(list(materialized))
+            current_metadata = self._store.get_message_metadata(list(materialized))
             for message_id, keys in materialized.items():
                 current = current_metadata[message_id]
                 effective = [key for key in keys if key in current]
@@ -573,7 +612,7 @@ class MailboxModel:
             return
         stale: dict[int, bytes] = {}
         for collection, token in if_in_state.items():
-            current = self._store.current_token(collection)
+            current = self._store.get_current_token(collection)
             if current != token:
                 stale[collection] = current
         if stale:
@@ -581,12 +620,12 @@ class MailboxModel:
 
     def _require_messages(self, message_ids: Sequence[bytes]) -> None:
         """Raise unless every message exists"""
-        if len(self._store.existing_message_ids(message_ids)) != len(set(message_ids)):
+        if len(self._store.get_existing_message_ids(message_ids)) != len(set(message_ids)):
             raise UnknownMessageError()
 
     def _require_tags(self, tag_ids: Iterable[int]) -> None:
         """Raise unless every tag id exists"""
-        existing = self._store.all_tags()
+        existing = self._store.get_all_tags()
         for tag_id in tag_ids:
             if tag_id not in existing:
                 raise UnknownTagError()
@@ -637,7 +676,7 @@ class MailboxModel:
 
             changes = ChangeSet()
             priors: dict[Any, Any] = {}
-            all_held = self._store.message_tags(list(materialized))
+            all_held = self._store.get_message_tags(list(materialized))
             for message_id, tag_ids in materialized.items():
                 held = all_held[message_id]
                 effective = (tag_ids - held) if adding else (tag_ids & held)
@@ -655,7 +694,7 @@ class MailboxModel:
         for collection, changed in priors.items():
             if not changed:
                 continue
-            previous = self._store.current_token(collection)
+            previous = self._store.get_current_token(collection)
             token = self._mint(previous)
             changes.new_tokens[collection] = token
             changes.log_entries[collection] = LogEntry(token_before=previous, priors=changed)
@@ -685,13 +724,13 @@ class MailboxModel:
     def _full_delta(self, collection: int) -> dict[Any, Any]:
         """The delta from the Initial State: the full current state in delta shape"""
         if collection == Collection.MAIL_LIST:
-            return {int(MailListDeltaKey.ADDED): self._store.all_message_ids(), int(MailListDeltaKey.DELETED): []}
+            return {int(MailListDeltaKey.ADDED): self._store.get_all_message_ids(), int(MailListDeltaKey.DELETED): []}
         if collection == Collection.TAG_LIST:
-            return dict(self._store.all_tags())
+            return dict(self._store.get_all_tags())
         if collection == Collection.MESSAGE_TAG:
-            held = self._store.message_tags(self._store.all_message_ids())
+            held = self._store.get_message_tags(self._store.get_all_message_ids())
             return {message_id: sorted(tag_ids) for message_id, tag_ids in held.items() if tag_ids}
-        metadata = self._store.message_metadata(self._store.all_message_ids())
+        metadata = self._store.get_message_metadata(self._store.get_all_message_ids())
         return {message_id: entries for message_id, entries in metadata.items() if entries}
 
     def _folded_delta(self, collection: int, entries: list[LogEntry]) -> dict[Any, Any]:
@@ -708,21 +747,21 @@ class MailboxModel:
         touched = list(at_then)
 
         if collection == Collection.MAIL_LIST:
-            present = self._store.existing_message_ids(touched)
+            present = self._store.get_existing_message_ids(touched)
             added = [mid for mid, existed in at_then.items() if not existed and mid in present]
             deleted = [mid for mid, existed in at_then.items() if existed and mid not in present]
             return {int(MailListDeltaKey.ADDED): added, int(MailListDeltaKey.DELETED): deleted}
 
         if collection == Collection.TAG_LIST:
-            names = self._store.all_tags()
+            names = self._store.get_all_tags()
             return {
                 tag_id: names.get(tag_id) for tag_id, name_then in at_then.items() if names.get(tag_id) != name_then
             }
 
-        present = self._store.existing_message_ids(touched)
+        present = self._store.get_existing_message_ids(touched)
 
         if collection == Collection.MESSAGE_TAG:
-            all_held = self._store.message_tags(touched)
+            all_held = self._store.get_message_tags(touched)
             delta: dict[Any, Any] = {}
             for message_id, tags_then in at_then.items():
                 exists = message_id in present
@@ -731,7 +770,7 @@ class MailboxModel:
                     delta[message_id] = sorted(tags_now) if exists else None
             return delta
 
-        all_metadata = self._store.message_metadata(touched)
+        all_metadata = self._store.get_message_metadata(touched)
         delta = {}
         for message_id, metadata_then in at_then.items():
             exists = message_id in present
