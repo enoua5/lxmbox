@@ -220,9 +220,9 @@ class FileStore(ScanSearch):
         #     self._logs.setdefault(collection, deque(maxlen=self._log_limit)).append(entry)
 
         with open(self._mail_list_path, "w") as f:
-            f.write(json.dumps(messages))
+            json.dump(messages, f)
         with open(self._metadata_path, "w") as f:
-            f.write(json.dumps(metadata))
+            json.dump(metadata, f)
         with open(self._message_tag_path, "w") as f:
             json.dump({"tags": [list(pair) for pair in tag_pairs]}, f)
         with open(self._tag_list_path, "w") as f:
