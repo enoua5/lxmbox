@@ -373,11 +373,11 @@ the server MAY opt to return a `NO` response with `GENERAL_ERROR` = `UNSUPPORTED
 | 8    | FETCH_PAYLOAD      | Fetch the Payload portion of stored LXMF messages                                                 |
 | 9    | FETCH_CONTENT      | Fetch the Content portion of stored messages                                                      |
 | 10   | FETCH_FIELDS       | Fetch the Fields portion of stored LXMF messages                                                  |
-| 11   | FETCH_TIMESTAMP    | Fetch the Timestamp portion of stored LXMF messages                                               |
-| 12   | FETCH_TITLE        | Fetch the Title portion of stored LXMF messages                                                   |
+| 11   | FETCH_TIMESTAMP    | Fetch the Timestamp portion of stored messages                                                    |
+| 12   | FETCH_TITLE        | Fetch the Title portion of stored messages                                                        |
 | 13   | FETCH_TAGS         | Fetch the Tags present on messages                                                                |
 | 14   | FETCH_METADATA     | Fetch the Metadata present on messages                                                            |
-| 15   | SEARCH_TITLE       | Search LXMF messages by the Title portion                                                         |
+| 15   | SEARCH_TITLE       | Search messages by the Title portion                                                              |
 | 16   | SEARCH_CONTENT     | Search messages by the Content portion                                                            |
 | 17   | UPLOAD             | Add messages to the MAIL_LIST Collection manually outside of the built-in delivery mechanism      |
 | 18   | DELETE             | Remove messages from the MAIL_LIST Collection                                                     |
@@ -508,6 +508,10 @@ After applying the Delta, the client SHOULD adopt the returned State as its last
 
 The exact format of the Delta Return Parameter depends on the Collection type.
 
+A Delta SHOULD be minimal, omitting changes for Collection items that have returned to the Last Known State.
+For example, if a tag was named `A` at the client's Last Known State, and was later renamed `B` and then `A` again, the composed rename from `A` to `A` SHOULD be omitted.
+A server MAY include these redundant entries, and a client MUST apply them as no-ops.
+
 #### MAIL_LIST Delta
 
 The MAIL_LIST Delta has two keys, ADDED (`0`) and DELETED (`1`).
@@ -518,7 +522,7 @@ and DELETED is a complete list of messages that existed in the Last Known State 
 A Message id MUST NOT appear in both the ADDED and DELETED lists.
 I.e., if a message was added and then deleted since the Last Known State, it should not appear in the delta.
 
-Messages that have the same existence state as the Last Known State MUST NOT appear.
+Messages that have the same existence state as the Last Known State SHOULD NOT appear.
 
 #### TAG_LIST Delta
 
@@ -530,7 +534,7 @@ Intermediary states MUST NOT be represented.
 I.e., if a tag is renamed multiple times, only the current name is shown;
 and if a tag is deleted and a new tag with the same id is created, the Delta is shown the same as if the tag was renamed.
 
-Tag IDs that have the same name as in the Last Known State MUST NOT appear.
+Tag IDs that have the same name as in the Last Known State SHOULD NOT appear.
 
 #### MESSAGE_TAG Delta
 
@@ -541,9 +545,9 @@ For messages that have been deleted, the value is `nil`.
 Intermediary states MUST NOT be represented.
 I.e., if a tag is added and then removed, its addition MUST NOT be reported.
 
-If a message has the same set of tags as in the Last Known State, it MUST NOT appear in the Delta.
+If a message has the same set of tags as in the Last Known State, it SHOULD NOT appear in the Delta.
 The set of tags does not have an order; if the server represents tags in an order,
-it MUST consider a reordering of tags as being the same set of tags and not include it in the Delta.
+it MUST consider a reordering of tags as being the same set of tags.
 
 #### METADATA Delta
 
@@ -554,7 +558,7 @@ For messages that have been deleted, the value is `nil`.
 Intermediary states MUST NOT be represented.
 I.e., if a metadata field is added and then removed, it MUST NOT be included in the Delta.
 
-If a message has the same metadata as the Last Known State, it MUST NOT appear in the Delta.
+If a message has the same metadata as the Last Known State, it SHOULD NOT appear in the Delta.
 A server MAY consider a Map as ordered or unordered when determining if an update needs to be reported.
 
 ### FETCH_FULL
@@ -695,7 +699,7 @@ The server SHOULD utilize Reticulum Resources for large responses.
 
 ### FETCH_TIMESTAMP
 
-Fetch the Timestamp portion of stored LXMF messages.
+Fetch the Timestamp portion of stored messages.
 
 **Positional Parameters**
 
@@ -709,10 +713,13 @@ Fetch the Timestamp portion of stored LXMF messages.
 |-------|----------|------------------------|-----------|------------------------------------------------------------------------------------------------------------------|
 | 0     | Messages | List[Timestamp OR nil] | No        | The message timestamps, returned in the same order requested. For messages that aren't found, `nil` is returned. |
 
-The Messages Return Parameter is a list of each message's reported Timestamp: the LXMF message timestamp, converted to the Timestamp type described in the "METADATA" section.
+The Messages Return Parameter is a list of each message's reported Timestamp, as the Timestamp type described in the "METADATA" section.
+For an LXMF message this is the LXMF message timestamp.
+For a message in another format, it MAY be derived according to the format's semantics.
+For example, a server could opt to derive it from the `Date` header of a MIME message brought in by a gateway.
 
-The server MUST return `nil` for any requested id that does not exist in the MAIL_LIST Collection,
-or for which the stored message is not in LXMF.
+The server MUST return `nil` for any requested id that does not exist in the MAIL_LIST Collection, or for which no Timestamp is known.
+A server MUST NOT substitute a fallback value when the message itself does not specify one.
 
 Fetch responses can be large.
 A server MAY refuse a request that selects too many messages, or whose response would be too large,
@@ -721,7 +728,7 @@ The server SHOULD utilize Reticulum Resources for large responses.
 
 ### FETCH_TITLE
 
-Fetch the Title portion of stored LXMF messages.
+Fetch the Title portion of stored messages.
 
 **Positional Parameters**
 
@@ -735,10 +742,13 @@ Fetch the Title portion of stored LXMF messages.
 |-------|----------|--------------------|-----------|--------------------------------------------------------------------------------------------------------------|
 | 0     | Messages | List[Bytes OR nil] | No        | The message titles, returned in the same order requested. For messages that aren't found, `nil` is returned. |
 
-The Messages Return Parameter is a list of each message's Title as a Bytes value, decoded from the payload.
+The Messages Return Parameter is a list of each message's Title as a Bytes value.
+For an LXMF message this is the Title portion, decoded from the payload.
+For a message in another format, it MAY be derived according to the format's semantics.
+For example, a server could opt to derive it from the `Subject` header of a MIME message brought in by a gateway.
 
-The server MUST return `nil` for any requested id that does not exist in the MAIL_LIST Collection,
-or for which the stored message is not in LXMF.
+The server MUST return `nil` for any requested id that does not exist in the MAIL_LIST Collection, or for which no Title is known.
+A server MUST NOT substitute a fallback value when the message itself does not specify one.
 
 Fetch responses can be large.
 A server MAY refuse a request that selects too many messages, or whose response would be too large,
@@ -801,7 +811,8 @@ The server SHOULD utilize Reticulum Resources for large responses.
 
 ### SEARCH_TITLE
 
-Search LXMF messages by the Title portion.
+Search messages by the Title portion.
+Only messages with a known Title are searched.
 
 **Positional Parameters**
 
@@ -920,7 +931,7 @@ The server MUST store an uploaded message opaquely.
 It MUST NOT parse the message, and MUST NOT treat it as LXMF even if it would parse as LXMF.
 An uploaded message is therefore a non-LXMF message for every other purpose in this specification:
 it is assigned a universally unique id as described in the "MAIL_LIST" section,
-and the LXMF-specific fetch requests return `nil` for it.
+and the LXMF-informed fetch requests (FETCH_HEAD, FETCH_PAYLOAD, FETCH_FIELDS) return `nil` for it.
 
 If an uploaded message is identical to one already present in the MAIL_LIST Collection, the server MAY choose whether to store an additional copy.
 Because uploaded messages do not take their ids from their contents, an additional copy receives its own distinct id.

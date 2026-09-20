@@ -120,7 +120,7 @@ class RequestType(IntEnum):
     FETCH_METADATA = 14
     """Fetch the Metadata present on messages"""
     SEARCH_TITLE = 15
-    """Search LXMF messages by the Title portion"""
+    """Search messages by the Title portion"""
     SEARCH_CONTENT = 16
     """Search messages by the Content portion """
     UPLOAD = 17

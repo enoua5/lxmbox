@@ -167,7 +167,7 @@ class TestDeltaRules:
         assert model.sync(Collection.TAG_LIST, token)[0] == {tag_id: "Third"}
 
     def test_a_rename_that_comes_back_around_is_omitted(self) -> None:
-        """Tag IDs that have the same name as in the Last Known State MUST NOT appear."""
+        """Tag IDs that have the same name as in the Last Known State SHOULD NOT appear."""
         model = fresh()
         _, (tag_id,) = model.create_tags(["Stable"])
         token = token_of(model, Collection.TAG_LIST)
