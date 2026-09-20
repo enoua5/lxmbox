@@ -1,11 +1,11 @@
 """Main entry point for example server"""
 
-import asyncio
 import os
+import time
 
 import RNS
 
-from rnmmp_server import APP_NAME, MailboxModel, MailboxService
+from rnmmp_server import MailboxModel, MailboxService
 
 from .auth import ReticulumAuth, get_allowed_identity_path
 from .config import Config, load_config
@@ -38,7 +38,7 @@ def _init_identity(config: Config) -> RNS.Identity:
 
     _init_rns(config)
 
-    identity_path = RNS.Reticulum.identitypath + "/" + APP_NAME
+    identity_path = RNS.Reticulum.identitypath + "/" + config.identity_name
 
     identity = None
     if os.path.isfile(identity_path):
@@ -61,8 +61,8 @@ def _init_identity(config: Config) -> RNS.Identity:
     return identity
 
 
-async def main() -> None:
-    """Main asyncio entry point"""
+def main() -> None:
+    """Main entry point"""
 
     config = load_config()
     mailbox = _init_mailbox(config)
@@ -89,12 +89,12 @@ async def main() -> None:
         lxmf_router.announce()
 
         while True:
+            time.sleep(config.announce_period if do_periodic_announce else 60)
             if do_periodic_announce:
                 service.announce()
                 lxmf_router.announce()
-            await asyncio.sleep(config.announce_period if config.announce_period > 0 else 60)
     finally:
         service.close()
 
 
-asyncio.run(main())
+main()
