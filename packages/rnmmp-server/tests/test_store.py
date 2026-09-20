@@ -49,11 +49,11 @@ class TestMessages:
 
     def test_existing_message_ids_is_the_present_subset(self) -> None:
         """Existence is answered without content: just the ids that are there."""
-        assert _populated().existing_message_ids([MID_A, b"missing", MID_B]) == {MID_A, MID_B}
+        assert _populated().get_existing_message_ids([MID_A, b"missing", MID_B]) == {MID_A, MID_B}
 
     def test_all_message_ids_lists_every_message(self) -> None:
         """The MAIL_LIST Collection, in insertion order."""
-        assert _populated().all_message_ids() == [MID_A, MID_B]
+        assert _populated().get_all_message_ids() == [MID_A, MID_B]
 
 
 class TestTagsAndMetadata:
@@ -61,30 +61,30 @@ class TestTagsAndMetadata:
 
     def test_message_tags_answers_every_requested_id(self) -> None:
         """Every requested id is a key, the untagged and unknown with an empty set."""
-        held = _populated().message_tags([MID_A, MID_B, b"missing"])
+        held = _populated().get_message_tags([MID_A, MID_B, b"missing"])
 
         assert held == {MID_A: {1, 2}, MID_B: {1}, b"missing": set()}
 
     def test_messages_with_tags_answers_every_requested_id(self) -> None:
         """Every requested tag id is a key, the unused and unknown with an empty set."""
-        carriers = _populated().messages_with_tags([1, 2, 99])
+        carriers = _populated().get_messages_with_tags([1, 2, 99])
 
         assert carriers == {1: {MID_A, MID_B}, 2: {MID_A}, 99: set()}
 
     def test_message_metadata_answers_every_requested_id(self) -> None:
         """Every requested id is a key, the bare and unknown with an empty map."""
-        metadata = _populated().message_metadata([MID_A, MID_B, b"missing"])
+        metadata = _populated().get_message_metadata([MID_A, MID_B, b"missing"])
 
         assert metadata == {MID_A: {0: 123, "note": "a"}, MID_B: {}, b"missing": {}}
 
     def test_reads_return_copies(self) -> None:
         """Mutating a read result doesn't mutate the store."""
         store = _populated()
-        store.all_tags()[1] = "clobbered"
-        store.message_metadata([MID_A])[MID_A]["note"] = "clobbered"
+        store.get_all_tags()[1] = "clobbered"
+        store.get_message_metadata([MID_A])[MID_A]["note"] = "clobbered"
 
-        assert store.all_tags()[1] == "Work"
-        assert store.message_metadata([MID_A])[MID_A]["note"] == "a"
+        assert store.get_all_tags()[1] == "Work"
+        assert store.get_message_metadata([MID_A])[MID_A]["note"] == "a"
 
 
 class TestApply:
@@ -95,32 +95,32 @@ class TestApply:
         store = _populated()
         store.apply(ChangeSet(message_ids_deleted=[MID_A]))
 
-        assert store.existing_message_ids([MID_A]) == set()
-        assert store.message_tags([MID_A]) == {MID_A: set()}
-        assert store.message_metadata([MID_A]) == {MID_A: {}}
-        assert store.message_tags([MID_B]) == {MID_B: {1}}
+        assert store.get_existing_message_ids([MID_A]) == set()
+        assert store.get_message_tags([MID_A]) == {MID_A: set()}
+        assert store.get_message_metadata([MID_A]) == {MID_A: {}}
+        assert store.get_message_tags([MID_B]) == {MID_B: {1}}
 
     def test_deleting_a_tag_cascades_its_pairs(self) -> None:
         """Deleting a tag removes its MESSAGE_TAG rows, leaving other tags in place."""
         store = _populated()
         store.apply(ChangeSet(tag_ids_deleted=[1]))
 
-        assert 1 not in store.all_tags()
-        assert store.message_tags([MID_A, MID_B]) == {MID_A: {2}, MID_B: set()}
+        assert 1 not in store.get_all_tags()
+        assert store.get_message_tags([MID_A, MID_B]) == {MID_A: {2}, MID_B: set()}
 
     def test_metadata_set_merges_and_removal_deletes_keys(self) -> None:
         """Metadata entries merge into the existing map; removed keys disappear."""
         store = _populated()
         store.apply(ChangeSet(metadata_set={MID_A: {"note": "b", "extra": 1}}, metadata_keys_removed={MID_A: [0]}))
 
-        assert store.message_metadata([MID_A]) == {MID_A: {"note": "b", "extra": 1}}
+        assert store.get_message_metadata([MID_A]) == {MID_A: {"note": "b", "extra": 1}}
 
     def test_renames_replace_names_in_place(self) -> None:
         """A renamed tag keeps its id."""
         store = _populated()
         store.apply(ChangeSet(tags_renamed={1: "Renamed"}))
 
-        assert store.all_tags() == {1: "Renamed", 2: "Home"}
+        assert store.get_all_tags() == {1: "Renamed", 2: "Home"}
 
 
 class TestScanSearch:
@@ -214,22 +214,22 @@ class TestTokensAndLog:
 
     def test_a_fresh_collection_holds_the_initial_token(self) -> None:
         """A Collection that has never changed is in the Initial State."""
-        assert MemoryStore().current_token(Collection.MAIL_LIST) == INITIAL_STATE_TOKEN
+        assert MemoryStore().get_current_token(Collection.MAIL_LIST) == INITIAL_STATE_TOKEN
 
     def test_applied_tokens_become_current(self) -> None:
         """`apply` moves each named Collection to its new token."""
         store = MemoryStore()
         store.apply(ChangeSet(new_tokens={0: b"\x01"}))
 
-        assert store.current_token(0) == b"\x01"
-        assert store.current_token(1) == INITIAL_STATE_TOKEN
+        assert store.get_current_token(0) == b"\x01"
+        assert store.get_current_token(1) == INITIAL_STATE_TOKEN
 
     def test_entries_since_the_current_token_are_empty(self) -> None:
         """A client at the current token has nothing to fetch."""
         store = MemoryStore()
         store.apply(ChangeSet(new_tokens={0: b"\x01"}, log_entries={0: LogEntry(INITIAL_STATE_TOKEN, {b"m": False})}))
 
-        assert store.entries_since(0, b"\x01") == []
+        assert store.get_entries_since(0, b"\x01") == []
 
     def test_entries_since_a_known_token_are_the_suffix(self) -> None:
         """Entries come back oldest first, starting at the write that left the given token."""
@@ -239,12 +239,12 @@ class TestTokensAndLog:
         store.apply(ChangeSet(new_tokens={0: b"\x02"}, log_entries={0: first}))
         store.apply(ChangeSet(new_tokens={0: b"\x03"}, log_entries={0: second}))
 
-        assert store.entries_since(0, b"\x01") == [first, second]
-        assert store.entries_since(0, b"\x02") == [second]
+        assert store.get_entries_since(0, b"\x01") == [first, second]
+        assert store.get_entries_since(0, b"\x02") == [second]
 
     def test_an_unknown_token_is_none(self) -> None:
         """A token the store cannot answer for is `None`, distinct from the empty suffix."""
-        assert MemoryStore().entries_since(0, b"who knows") is None
+        assert MemoryStore().get_entries_since(0, b"who knows") is None
 
     def test_the_log_prunes_at_its_limit(self) -> None:
         """The oldest entries fall away, and their tokens become unknown."""
@@ -254,8 +254,8 @@ class TestTokensAndLog:
                 ChangeSet(new_tokens={0: bytes([index + 1])}, log_entries={0: LogEntry(bytes([index]), {b"m": True})})
             )
 
-        assert store.entries_since(0, bytes([1])) is None
-        assert store.entries_since(0, bytes([3])) == [
+        assert store.get_entries_since(0, bytes([1])) is None
+        assert store.get_entries_since(0, bytes([3])) == [
             LogEntry(bytes([3]), {b"m": True}),
             LogEntry(bytes([4]), {b"m": True}),
         ]
@@ -321,7 +321,7 @@ class TestMessageIndex:
         store = MemoryStore()
         store.apply(ChangeSet(messages_added=[StoredMessage.from_raw(MID_A, lxmf_raw(), lxmf=True)]))
 
-        first, missing = store.message_index([MID_A, b"missing"])
+        first, missing = store.get_message_indexes([MID_A, b"missing"])
 
         assert first is not None and first.title == b"the title"
         assert missing is None

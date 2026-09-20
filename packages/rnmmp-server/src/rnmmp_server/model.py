@@ -18,7 +18,6 @@ from itertools import islice
 from typing import Any, Final
 
 import LXMF
-import RNS
 
 from rnmmp_core import (
     INITIAL_STATE_TOKEN,
@@ -275,8 +274,9 @@ class MailboxModel:
         """Ingest a delivered LXMF message into the mailbox"""
 
         if not message.packed:
-            message.pack()
-            assert message.packed
+            # Delivered messages always carry their packed bytes
+            # `message.pack()` is for outgoing mail
+            raise ValueError("only a packed LXMessage can be ingested")
 
         return self.ingest(
             message.message_id,
@@ -303,7 +303,6 @@ class MailboxModel:
             UnknownTagError: for a tag id not in the TAG_LIST Collection.
         """
         with self._lock:
-            RNS.log(f"Message {message_id.hex()} ingested")
             if self._store.get_existing_message_ids([message_id]):
                 return {}
             tag_ids = {int(tag_id) for tag_id in tags}

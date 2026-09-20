@@ -50,6 +50,7 @@ class MailboxService:
             model: The mailbox to serve.
             identity: The mailbox's own `RNS.Identity`, private key included.
             authorized: Whether the given device identity hash may use this mailbox.
+                Called for every Request, so keep it fast — use a cache if there are any expensive lookups.
         """
         self._model = model
         self._authorized = authorized
