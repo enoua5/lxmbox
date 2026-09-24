@@ -123,28 +123,17 @@ class StoredMessage:
 @dataclass(frozen=True, slots=True)
 class LogEntry:
     """
-    One write's change-log record for one Collection: the keys the write changed, each with
-    the value it held before the write.
+    One write's change-log record for one Collection.
 
-    A delta compares the value a client last saw against the value now. The log supplies the "last saw" history.
-    Walking the entries made since the client's token, the first entry that mentions some key reveals the value that
-    the client still holds for it, and a key no entry mentions is unchanged.
-
-    What key and value mean depends on the Collection:
-
-    * MAIL_LIST — key: message id; value: whether the message existed (`bool`)
-    * TAG_LIST — key: tag id; value: its name, `None` for a tag that did not exist
-    * MESSAGE_TAG — key: message id; value: its tag ids as a `frozenset`, empty when the
-      message did not exist or was untagged
-    * METADATA — key: message id; value: its metadata map, empty when the message did not
-      exist or had none
+    The entry holds its own write's Delta, packed; SYNC composes the entries recorded since the
+    client's token. A `Store` treats the fragment opaquely.
     """
 
     token_before: bytes
     """The Collection's State Token before this write"""
 
-    priors: dict[Any, Any]
-    """The changed keys, each mapped to the value it held before the write"""
+    fragment: bytes
+    """This write's Delta for the Collection, packed"""
 
 
 @dataclass(slots=True)

@@ -26,7 +26,7 @@ class FileStore(ScanSearch):
         self._message_tag_path = self._path / "message_tag.msgpack"
         self._metadata_path = self._path / "metadata.msgpack"
         self._token_path = self._path / "token.msgpack"
-        # self._log_path = self._path / "log.msgpack"
+        self._log_path = self._path / "log.msgpack"
         self._log_limit = log_limit
 
         self._mail_path = self._path / "mail"
@@ -165,21 +165,14 @@ class FileStore(ScanSearch):
         if token == self.get_current_token(collection):
             return []
 
-        # logs = self._load_state(self._log_path, {})
-
-        # log: list[dict[str, Any]] = logs.get(str(collection), [])
-        # for index, entry in enumerate(log):
-        #     if entry.get("token_before") == token:
-        #         items = list(log)[index:]
-        #         return [
-        #             LogEntry(
-        #                 token_before=bytes.fromhex(item["token_before"]),
-        #                 # ok this one doesn't make any sense lol
-        #                 # todo: make this reasonable
-        #                 priors=...,
-        #             )
-        #             for item in items
-        #         ]
+        # collection id -> (token, opaque state fragment)[]
+        logs: dict[int, list[tuple[bytes, bytes]]] = self._load_state(self._log_path, {})
+        log = logs.get(collection, [])
+        # Find `token` in our index
+        for index, (token_before, _) in enumerate(log):
+            if token_before == token:
+                # return everything after
+                return [LogEntry(token_before=before, fragment=fragment) for before, fragment in log[index:]]
 
         return None
 
@@ -195,6 +188,7 @@ class FileStore(ScanSearch):
         tag_pairs = {(message_id, tag_id) for message_id, tag_id in loaded_pairs}
         tags: dict[int, str] = self._load_state(self._tag_list_path, {})
         tokens: dict[int, bytes] = self._load_state(self._token_path, {})
+        logs: dict[int, list[list[bytes]]] = self._load_state(self._log_path, {})
 
         with self._staged_writes() as stage:
             for message in changes.messages_added:
@@ -229,11 +223,14 @@ class FileStore(ScanSearch):
 
             tokens.update(changes.new_tokens)
 
-            # for collection, entry in changes.log_entries.items():
-            #     self._logs.setdefault(collection, deque(maxlen=self._log_limit)).append(entry)
+            for collection, entry in changes.log_entries.items():
+                log = logs.get(collection, [])
+                log.append([entry.token_before, entry.fragment])
+                logs[collection] = log[-self._log_limit :]
 
             stage(self._mail_list_path, pack(messages))
             stage(self._metadata_path, pack(metadata))
             stage(self._message_tag_path, pack(list(tag_pairs)))
             stage(self._tag_list_path, pack(tags))
             stage(self._token_path, pack(tokens))
+            stage(self._log_path, pack(logs))

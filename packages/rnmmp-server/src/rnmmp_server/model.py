@@ -39,6 +39,7 @@ from rnmmp_core import (
     UnknownTagError,
 )
 
+from .deltas import compose_deltas, is_empty_delta, make_empty_delta, pack_fragment, unpack_fragment
 from .store import ChangeSet, LogEntry, MessageIndex, Store, StoredMessage
 
 __all__ = [
@@ -240,11 +241,16 @@ class MailboxModel:
             if last_known == INITIAL_STATE_TOKEN:
                 return self._full_delta(collection), token
             if last_known == token:
-                return self._empty_delta(collection), token
+                return make_empty_delta(collection), token
             entries = self._store.get_entries_since(collection, last_known)
             if entries is None:
                 raise UnknownStateError()
-            return self._folded_delta(collection, entries), token
+            try:
+                fragments = [unpack_fragment(entry.fragment) for entry in entries]
+            except ValueError:
+                logger.warning("Change-log for Collection %s is unreadable, forcing a full resync", collection)
+                raise UnknownStateError() from None
+            return compose_deltas(collection, fragments), token
 
     ############################################################################
     # Writes
@@ -346,28 +352,26 @@ class MailboxModel:
 
             updated: UpdatedStates = {}
             message_ids: list[bytes] = []
-            mail_priors: dict[Any, Any] = {}
-            pair_priors: dict[Any, Any] = {}
-            metadata_priors: dict[Any, Any] = {}
+            message_tag_step: dict[bytes, list[int]] = {}
+            metadata_step: dict[bytes, dict[Any, Any]] = {}
             changes = ChangeSet()
             for raw in raws:
                 message_id = uuid.uuid4().bytes
                 message_ids.append(message_id)
                 changes.messages_added.append(StoredMessage.from_raw(message_id, raw, lxmf=False))
-                mail_priors[message_id] = False
                 if tag_ids:
                     changes.tag_pairs_added.extend((message_id, tag_id) for tag_id in tag_ids)
-                    pair_priors[message_id] = frozenset()
+                    message_tag_step[message_id] = sorted(tag_ids)
                 if combined:
                     changes.metadata_set[message_id] = dict(combined)
-                    metadata_priors[message_id] = {}
+                    metadata_step[message_id] = dict(combined)
             if message_ids:
-                priors = {int(Collection.MAIL_LIST): mail_priors}
-                if pair_priors:
-                    priors[int(Collection.MESSAGE_TAG)] = pair_priors
-                if metadata_priors:
-                    priors[int(Collection.METADATA)] = metadata_priors
-                updated = self._commit(changes, priors)
+                steps = {int(Collection.MAIL_LIST): self._mail_list_delta(added=message_ids, deleted=[])}
+                if message_tag_step:
+                    steps[int(Collection.MESSAGE_TAG)] = message_tag_step
+                if metadata_step:
+                    steps[int(Collection.METADATA)] = metadata_step
+                updated = self._commit(changes, steps)
             return updated, message_ids
 
     def delete(self, message_ids: Iterable[bytes], *, if_in_state: Mapping[int, bytes] | None = None) -> UpdatedStates:
@@ -384,19 +388,25 @@ class MailboxModel:
             requested = list(dict.fromkeys(message_ids))
             existing = self._store.get_existing_message_ids(requested)
             present = [message_id for message_id in requested if message_id in existing]
-            changes = ChangeSet(message_ids_deleted=list(present))
-            priors: dict[int, dict[Any, Any]] = {int(Collection.MAIL_LIST): dict.fromkeys(present, True)}
-            held = self._store.get_message_tags(present)
-            held_metadata = self._store.get_message_metadata(present)
-            pair_priors: dict[Any, Any] = {mid: frozenset(held[mid]) for mid in present if held[mid]}
-            metadata_priors: dict[Any, Any] = {mid: held_metadata[mid] for mid in present if held_metadata[mid]}
-            if pair_priors:
-                priors[int(Collection.MESSAGE_TAG)] = pair_priors
-            if metadata_priors:
-                priors[int(Collection.METADATA)] = metadata_priors
             if not present:
                 return {}
-            return self._commit(changes, priors)
+
+            changes = ChangeSet(message_ids_deleted=list(present))
+            steps: dict[int, dict[Any, Any]] = {
+                int(Collection.MAIL_LIST): self._mail_list_delta(added=[], deleted=present)
+            }
+
+            # Cascade to metadata and tags
+            deleted_message_tags = self._store.get_message_tags(present)
+            deleted_metadata = self._store.get_message_metadata(present)
+
+            message_tag_step: dict[Any, Any] = {mid: None for mid in present if deleted_message_tags.get(mid)}
+            metadata_step: dict[Any, Any] = {mid: None for mid in present if deleted_metadata.get(mid)}
+            if message_tag_step:
+                steps[int(Collection.MESSAGE_TAG)] = message_tag_step
+            if metadata_step:
+                steps[int(Collection.METADATA)] = metadata_step
+            return self._commit(changes, steps)
 
     def create_tags(
         self, names: Iterable[str], *, if_in_state: Mapping[int, bytes] | None = None
@@ -439,8 +449,7 @@ class MailboxModel:
             if not created:
                 return {}, assigned
             changes = ChangeSet(tags_created=created)
-            priors = {int(Collection.TAG_LIST): dict.fromkeys(created, None)}
-            return self._commit(changes, priors), assigned
+            return self._commit(changes, {int(Collection.TAG_LIST): dict(created)}), assigned
 
     def delete_tags(self, tag_ids: Iterable[int], *, if_in_state: Mapping[int, bytes] | None = None) -> UpdatedStates:
         """
@@ -463,16 +472,15 @@ class MailboxModel:
                 return {}
 
             changes = ChangeSet(tag_ids_deleted=present)
-            priors: dict[int, dict[Any, Any]] = {
-                int(Collection.TAG_LIST): {tag_id: existing[tag_id] for tag_id in present}
-            }
+            steps: dict[int, dict[Any, Any]] = {int(Collection.TAG_LIST): dict.fromkeys(present, None)}
             carriers = self._store.get_messages_with_tags(present)
             affected = list({message_id for message_ids in carriers.values() for message_id in message_ids})
             held = self._store.get_message_tags(affected)
-            pair_priors: dict[Any, Any] = {message_id: frozenset(held[message_id]) for message_id in affected}
-            if pair_priors:
-                priors[int(Collection.MESSAGE_TAG)] = pair_priors
-            return self._commit(changes, priors)
+            removed = set(present)
+            message_tag_step: dict[Any, Any] = {message_id: sorted(held[message_id] - removed) for message_id in affected}
+            if message_tag_step:
+                steps[int(Collection.MESSAGE_TAG)] = message_tag_step
+            return self._commit(changes, steps)
 
     def rename_tags(
         self, renames: Mapping[int, str], *, if_in_state: Mapping[int, bytes] | None = None
@@ -508,8 +516,7 @@ class MailboxModel:
             if not effective:
                 return {}
             changes = ChangeSet(tags_renamed=effective)
-            priors = {int(Collection.TAG_LIST): {tag_id: existing[tag_id] for tag_id in effective}}
-            return self._commit(changes, priors)
+            return self._commit(changes, {int(Collection.TAG_LIST): dict(effective)})
 
     def add_tags(
         self, additions: Mapping[bytes, Iterable[int]], *, if_in_state: Mapping[int, bytes] | None = None
@@ -556,17 +563,17 @@ class MailboxModel:
                 self._require_client_keys(entry)
 
             changes = ChangeSet()
-            priors: dict[Any, Any] = {}
+            step: dict[Any, Any] = {}
             current_metadata = self._store.get_message_metadata(list(entries))
             for message_id, entry in entries.items():
                 current = current_metadata[message_id]
                 effective = {key: value for key, value in entry.items() if key not in current or current[key] != value}
                 if effective:
                     changes.metadata_set[message_id] = effective
-                    priors[message_id] = current
-            if not priors:
+                    step[message_id] = {**current, **effective}
+            if not step:
                 return {}
-            return self._commit(changes, {int(Collection.METADATA): priors})
+            return self._commit(changes, {int(Collection.METADATA): step})
 
     def remove_metadata(
         self, removals: Mapping[bytes, Iterable[Any]], *, if_in_state: Mapping[int, bytes] | None = None
@@ -589,17 +596,18 @@ class MailboxModel:
                         raise ReservedMetadataKeyError()
 
             changes = ChangeSet()
-            priors: dict[Any, Any] = {}
+            step: dict[Any, Any] = {}
             current_metadata = self._store.get_message_metadata(list(materialized))
             for message_id, keys in materialized.items():
                 current = current_metadata[message_id]
                 effective = [key for key in keys if key in current]
                 if effective:
                     changes.metadata_keys_removed[message_id] = effective
-                    priors[message_id] = current
-            if not priors:
+                    dropped = set(effective)
+                    step[message_id] = {key: value for key, value in current.items() if key not in dropped}
+            if not step:
                 return {}
-            return self._commit(changes, {int(Collection.METADATA): priors})
+            return self._commit(changes, {int(Collection.METADATA): step})
 
     ############################################################################
     # Internals
@@ -647,14 +655,16 @@ class MailboxModel:
         """Commit one new message with its initial tags and metadata. Lock held"""
         self._check_state(if_in_state)
         changes = ChangeSet(messages_added=[message])
-        priors: dict[int, dict[Any, Any]] = {int(Collection.MAIL_LIST): {message.message_id: False}}
+        steps: dict[int, dict[Any, Any]] = {
+            int(Collection.MAIL_LIST): self._mail_list_delta(added=[message.message_id], deleted=[])
+        }
         if tag_ids:
             changes.tag_pairs_added.extend((message.message_id, tag_id) for tag_id in tag_ids)
-            priors[int(Collection.MESSAGE_TAG)] = {message.message_id: frozenset()}
+            steps[int(Collection.MESSAGE_TAG)] = {message.message_id: sorted(tag_ids)}
         if metadata:
             changes.metadata_set[message.message_id] = metadata
-            priors[int(Collection.METADATA)] = {message.message_id: {}}
-        return self._commit(changes, priors)
+            steps[int(Collection.METADATA)] = {message.message_id: dict(metadata)}
+        return self._commit(changes, steps)
 
     def _change_pairs(
         self,
@@ -674,7 +684,7 @@ class MailboxModel:
                 self._require_tags(tag_ids)
 
             changes = ChangeSet()
-            priors: dict[Any, Any] = {}
+            step: dict[Any, Any] = {}
             all_held = self._store.get_message_tags(list(materialized))
             for message_id, tag_ids in materialized.items():
                 held = all_held[message_id]
@@ -682,21 +692,21 @@ class MailboxModel:
                 if effective:
                     pairs = [(message_id, tag_id) for tag_id in effective]
                     (changes.tag_pairs_added if adding else changes.tag_pairs_removed).extend(pairs)
-                    priors[message_id] = frozenset(held)
-            if not priors:
+                    step[message_id] = sorted((held | effective) if adding else (held - effective))
+            if not step:
                 return {}
-            return self._commit(changes, {int(Collection.MESSAGE_TAG): priors})
+            return self._commit(changes, {int(Collection.MESSAGE_TAG): step})
 
-    def _commit(self, changes: ChangeSet, priors: dict[int, dict[Any, Any]]) -> UpdatedStates:
-        """Mint a token per changed Collection, record the log entries, and apply atomically"""
+    def _commit(self, changes: ChangeSet, steps: dict[int, dict[Any, Any]]) -> UpdatedStates:
+        """Mint a token per changed Collection, record each one's step Delta, and apply atomically"""
         updated: UpdatedStates = {}
-        for collection, changed in priors.items():
-            if not changed:
+        for collection, step in steps.items():
+            if is_empty_delta(collection, step):
                 continue
             previous = self._store.get_current_token(collection)
             token = self._mint(previous)
             changes.new_tokens[collection] = token
-            changes.log_entries[collection] = LogEntry(token_before=previous, priors=changed)
+            changes.log_entries[collection] = LogEntry(token_before=previous, fragment=pack_fragment(step))
             updated[collection] = TokenPair(previous, token)
         if updated:
             self._store.apply(changes)
@@ -714,16 +724,14 @@ class MailboxModel:
     ############################################################################
 
     @staticmethod
-    def _empty_delta(collection: int) -> dict[Any, Any]:
-        """The delta between a state and itself"""
-        if collection == Collection.MAIL_LIST:
-            return {int(MailListDeltaKey.ADDED): [], int(MailListDeltaKey.DELETED): []}
-        return {}
+    def _mail_list_delta(*, added: Sequence[bytes], deleted: Sequence[bytes]) -> dict[Any, Any]:
+        """A MAIL_LIST Delta reporting the given ids"""
+        return {int(MailListDeltaKey.ADDED): list(added), int(MailListDeltaKey.DELETED): list(deleted)}
 
     def _full_delta(self, collection: int) -> dict[Any, Any]:
         """The delta from the Initial State: the full current state in delta shape"""
         if collection == Collection.MAIL_LIST:
-            return {int(MailListDeltaKey.ADDED): self._store.get_all_message_ids(), int(MailListDeltaKey.DELETED): []}
+            return self._mail_list_delta(added=self._store.get_all_message_ids(), deleted=[])
         if collection == Collection.TAG_LIST:
             return dict(self._store.get_all_tags())
         if collection == Collection.MESSAGE_TAG:
@@ -731,49 +739,3 @@ class MailboxModel:
             return {message_id: sorted(tag_ids) for message_id, tag_ids in held.items() if tag_ids}
         metadata = self._store.get_message_metadata(self._store.get_all_message_ids())
         return {message_id: entries for message_id, entries in metadata.items() if entries}
-
-    def _folded_delta(self, collection: int, entries: list[LogEntry]) -> dict[Any, Any]:
-        """
-        Fold log entries into one delta: each key's value *then* is its earliest recorded prior,
-        compared against its value *now* — so intermediary states never appear, and a key whose
-        value came back around is omitted.
-        """
-        at_then: dict[Any, Any] = {}
-        for entry in entries:
-            for key, prior in entry.priors.items():
-                at_then.setdefault(key, prior)
-
-        touched = list(at_then)
-
-        if collection == Collection.MAIL_LIST:
-            present = self._store.get_existing_message_ids(touched)
-            added = [mid for mid, existed in at_then.items() if not existed and mid in present]
-            deleted = [mid for mid, existed in at_then.items() if existed and mid not in present]
-            return {int(MailListDeltaKey.ADDED): added, int(MailListDeltaKey.DELETED): deleted}
-
-        if collection == Collection.TAG_LIST:
-            names = self._store.get_all_tags()
-            return {
-                tag_id: names.get(tag_id) for tag_id, name_then in at_then.items() if names.get(tag_id) != name_then
-            }
-
-        present = self._store.get_existing_message_ids(touched)
-
-        if collection == Collection.MESSAGE_TAG:
-            all_held = self._store.get_message_tags(touched)
-            delta: dict[Any, Any] = {}
-            for message_id, tags_then in at_then.items():
-                exists = message_id in present
-                tags_now = frozenset(all_held[message_id]) if exists else frozenset()
-                if tags_now != tags_then:
-                    delta[message_id] = sorted(tags_now) if exists else None
-            return delta
-
-        all_metadata = self._store.get_message_metadata(touched)
-        delta = {}
-        for message_id, metadata_then in at_then.items():
-            exists = message_id in present
-            metadata_now = all_metadata[message_id] if exists else {}
-            if metadata_now != metadata_then:
-                delta[message_id] = metadata_now if exists else None
-        return delta

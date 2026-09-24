@@ -227,15 +227,15 @@ class TestTokensAndLog:
     def test_entries_since_the_current_token_are_empty(self) -> None:
         """A client at the current token has nothing to fetch."""
         store = MemoryStore()
-        store.apply(ChangeSet(new_tokens={0: b"\x01"}, log_entries={0: LogEntry(INITIAL_STATE_TOKEN, {b"m": False})}))
+        store.apply(ChangeSet(new_tokens={0: b"\x01"}, log_entries={0: LogEntry(INITIAL_STATE_TOKEN, b"fragment")}))
 
         assert store.get_entries_since(0, b"\x01") == []
 
     def test_entries_since_a_known_token_are_the_suffix(self) -> None:
         """Entries come back oldest first, starting at the write that left the given token."""
         store = MemoryStore()
-        first = LogEntry(b"\x01", {b"m": False})
-        second = LogEntry(b"\x02", {b"n": False})
+        first = LogEntry(b"\x01", b"first fragment")
+        second = LogEntry(b"\x02", b"second fragment")
         store.apply(ChangeSet(new_tokens={0: b"\x02"}, log_entries={0: first}))
         store.apply(ChangeSet(new_tokens={0: b"\x03"}, log_entries={0: second}))
 
@@ -251,13 +251,13 @@ class TestTokensAndLog:
         store = MemoryStore(log_limit=2)
         for index in range(1, 5):
             store.apply(
-                ChangeSet(new_tokens={0: bytes([index + 1])}, log_entries={0: LogEntry(bytes([index]), {b"m": True})})
+                ChangeSet(new_tokens={0: bytes([index + 1])}, log_entries={0: LogEntry(bytes([index]), b"fragment")})
             )
 
         assert store.get_entries_since(0, bytes([1])) is None
         assert store.get_entries_since(0, bytes([3])) == [
-            LogEntry(bytes([3]), {b"m": True}),
-            LogEntry(bytes([4]), {b"m": True}),
+            LogEntry(bytes([3]), b"fragment"),
+            LogEntry(bytes([4]), b"fragment"),
         ]
 
 

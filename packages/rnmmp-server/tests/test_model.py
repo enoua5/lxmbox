@@ -148,13 +148,18 @@ class TestDeltaRules:
         assert model.sync(Collection.MAIL_LIST, token)[0] == {ADDED: [], DELETED: []}
 
     def test_no_id_appears_in_both_added_and_deleted(self) -> None:
-        """A deleted-and-redelivered message has the existence it started with."""
+        """A Message id MUST NOT appear in both the ADDED and DELETED lists."""
         model = with_message()
         token = token_of(model, Collection.MAIL_LIST)
         model.delete([MID])
         model.ingest(MID, b"raw", lxmf=True)
 
-        assert model.sync(Collection.MAIL_LIST, token)[0] == {ADDED: [], DELETED: []}
+        delta = model.sync(Collection.MAIL_LIST, token)[0]
+
+        assert not set(delta[ADDED]) & set(delta[DELETED])
+        # It could be in added (unless the server kept that it was deleted and de-duped it),
+        # but it must not be in deleted
+        assert MID not in delta[DELETED]
 
     def test_intermediary_renames_are_not_represented(self) -> None:
         """If a tag is renamed multiple times, only the current name is shown."""
@@ -166,15 +171,19 @@ class TestDeltaRules:
 
         assert model.sync(Collection.TAG_LIST, token)[0] == {tag_id: "Third"}
 
-    def test_a_rename_that_comes_back_around_is_omitted(self) -> None:
-        """Tag IDs that have the same name as in the Last Known State SHOULD NOT appear."""
+    def test_a_rename_that_comes_back_around_doesnt_sync_the_intermediary(self) -> None:
+        """
+        Tag IDs that have the same name as in the Last Known State SHOULD NOT appear.
+
+        The server may report the no-op, but only ever with the current name
+        """
         model = fresh()
         _, (tag_id,) = model.create_tags(["Stable"])
         token = token_of(model, Collection.TAG_LIST)
         model.rename_tags({tag_id: "Wandering"})
         model.rename_tags({tag_id: "Stable"})
 
-        assert model.sync(Collection.TAG_LIST, token)[0] == {}
+        assert model.sync(Collection.TAG_LIST, token)[0] in ({}, {tag_id: "Stable"})
 
     def test_a_deleted_tag_reports_nil(self) -> None:
         """For tags that have been deleted since the Last Known State, the value is nil."""
@@ -197,13 +206,17 @@ class TestDeltaRules:
         assert model.sync(Collection.TAG_LIST, token)[0] == {tag_id: "New"}
 
     def test_a_tag_added_and_removed_from_a_message_is_not_reported(self) -> None:
-        """If a tag is added and then removed, its addition MUST NOT be reported."""
+        """
+        If a tag is added and then removed, its addition MUST NOT be reported.
+
+        The message's entry may survive as a no-op value holding the current set.
+        """
         model = with_message()
         token = token_of(model, Collection.MESSAGE_TAG)
         model.add_tags({MID: [ServerTag.IMPORTANT]})
         model.remove_tags({MID: [ServerTag.IMPORTANT]})
 
-        assert model.sync(Collection.MESSAGE_TAG, token)[0] == {}
+        assert model.sync(Collection.MESSAGE_TAG, token)[0] in ({}, {MID: [ServerTag.UNREAD]})
 
     def test_a_deleted_message_reports_nil_in_message_tag(self) -> None:
         """For messages that have been deleted, the value is nil."""

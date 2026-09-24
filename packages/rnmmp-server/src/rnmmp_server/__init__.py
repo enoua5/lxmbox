@@ -1,5 +1,6 @@
 """The Reticulum Network Mail Management Protocol server"""
 
+from .deltas import compose_deltas, is_empty_delta, make_empty_delta, pack_fragment, unpack_fragment
 from .handlers import handle
 from .model import (
     RESERVED_METADATA_KEYS,
@@ -31,5 +32,10 @@ __all__ = [
     "TokenPair",
     "UpdatedStates",
     "__version__",
+    "compose_deltas",
+    "make_empty_delta",
     "handle",
+    "is_empty_delta",
+    "pack_fragment",
+    "unpack_fragment",
 ]
