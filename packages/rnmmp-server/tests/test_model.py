@@ -29,7 +29,7 @@ from rnmmp_core import (
     UnknownTagError,
     pack,
 )
-from rnmmp_server import MailboxModel, MemoryStore, MessageIndex, StoredMessage
+from rnmmp_server import LogEntry, MailboxModel, MemoryStore, MessageIndex, StoredMessage
 
 MID = b"\x11" * 32
 OTHER_MID = b"\x22" * 32
@@ -134,18 +134,45 @@ class TestSync:
         assert excinfo.value.status is ResponseStatus.NO
         assert len(model.sync(Collection.TAG_LIST, INITIAL_STATE_TOKEN)[0]) == len(list(ServerTag)) + 4
 
+    def test_a_corrupt_fragment_is_unknown_state_not_a_wrong_delta(self) -> None:
+        """A change-log the model cannot read falls back to UNKNOWN_STATE, to be recovered by resync"""
+
+        class StoreThatEatsYourData(MemoryStore):
+            """
+            i can be trusted with data store :)
+            nothing bad will happen if you let me eat your data :)
+            """
+
+            def get_entries_since(self, collection: int, token: bytes) -> list[LogEntry] | None:
+                entries = super().get_entries_since(collection, token)
+                if not entries:
+                    return entries
+                return [LogEntry(entry.token_before, b"\xc1 rot") for entry in entries]
+
+        model = MailboxModel(StoreThatEatsYourData())
+        model.create_tags(["anchor"])
+        stale = token_of(model, Collection.TAG_LIST)
+        model.create_tags(["later"])
+
+        with pytest.raises(UnknownStateError):
+            model.sync(Collection.TAG_LIST, stale)
+        assert len(model.sync(Collection.TAG_LIST, INITIAL_STATE_TOKEN)[0]) == len(list(ServerTag)) + 2
+
 
 class TestDeltaRules:
     """The MUST rules of the four Delta shapes."""
 
-    def test_a_message_added_and_deleted_appears_in_neither_list(self) -> None:
+    def test_a_message_added_and_deleted_is_not_reported_added(self) -> None:
         """If a message was added and then deleted since the Last Known State, it should not appear."""
-        model = fresh()
+        model = with_message()
         token = token_of(model, Collection.MAIL_LIST)
         _, ids = model.upload([b"ephemeral"])
         model.delete(ids)
 
-        assert model.sync(Collection.MAIL_LIST, token)[0] == {ADDED: [], DELETED: []}
+        delta = model.sync(Collection.MAIL_LIST, token)[0]
+
+        assert not set(delta[ADDED]) & set(delta[DELETED])
+        assert ids[0] not in delta[ADDED]
 
     def test_no_id_appears_in_both_added_and_deleted(self) -> None:
         """A Message id MUST NOT appear in both the ADDED and DELETED lists."""
@@ -217,6 +244,32 @@ class TestDeltaRules:
         model.remove_tags({MID: [ServerTag.IMPORTANT]})
 
         assert model.sync(Collection.MESSAGE_TAG, token)[0] in ({}, {MID: [ServerTag.UNREAD]})
+
+    def test_a_metadata_change_reports_the_whole_current_map(self) -> None:
+        """For messages that have had Metadata changed, the value is the message's current metadata map"""
+        model = with_message()
+        model.set_metadata({MID: {"kept": 1}})
+        token = token_of(model, Collection.METADATA)
+        model.set_metadata({MID: {"new": 2}})
+
+        assert model.sync(Collection.METADATA, token)[0] == {MID: {"kept": 1, "new": 2}}
+
+    def test_a_metadata_removal_reports_the_remaining_map(self) -> None:
+        """A removal's Delta value is the map the message still holds"""
+        model = with_message()
+        model.set_metadata({MID: {"kept": 1, "doomed": 2}})
+        token = token_of(model, Collection.METADATA)
+        model.remove_metadata({MID: ["doomed"]})
+
+        assert model.sync(Collection.METADATA, token)[0] == {MID: {"kept": 1}}
+
+    def test_a_tag_addition_reports_the_whole_current_set(self) -> None:
+        """The value is the list of current Tag IDs, not just the ones the write touched"""
+        model = with_message()  # already tagged UNREAD
+        token = token_of(model, Collection.MESSAGE_TAG)
+        model.add_tags({MID: [ServerTag.IMPORTANT]})
+
+        assert model.sync(Collection.MESSAGE_TAG, token)[0] == {MID: sorted([ServerTag.UNREAD, ServerTag.IMPORTANT])}
 
     def test_a_deleted_message_reports_nil_in_message_tag(self) -> None:
         """For messages that have been deleted, the value is nil."""

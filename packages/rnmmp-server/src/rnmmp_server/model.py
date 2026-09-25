@@ -477,7 +477,9 @@ class MailboxModel:
             affected = list({message_id for message_ids in carriers.values() for message_id in message_ids})
             held = self._store.get_message_tags(affected)
             removed = set(present)
-            message_tag_step: dict[Any, Any] = {message_id: sorted(held[message_id] - removed) for message_id in affected}
+            message_tag_step: dict[Any, Any] = {
+                message_id: sorted(held[message_id] - removed) for message_id in affected
+            }
             if message_tag_step:
                 steps[int(Collection.MESSAGE_TAG)] = message_tag_step
             return self._commit(changes, steps)
