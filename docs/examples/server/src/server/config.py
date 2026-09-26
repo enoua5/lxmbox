@@ -90,7 +90,7 @@ def _parser() -> argparse.ArgumentParser:
     parser.add_argument(
         "--allowed-identities",
         metavar="HASHES",
-        help="Comma-seperated list of statically-allowed hex-encoded identity hashes (default: none)",
+        help="Comma-separated list of statically-allowed hex-encoded identity hashes (default: none)",
     )
     parser.add_argument(
         "--announce-period",
@@ -183,7 +183,7 @@ class _Settings:
         raise ConfigError(f"{name} must be true or false, not {raw!r}")
 
     def identity_list[T](self, name: str, default: T) -> list[bytes] | T:
-        """A list of identity hashes, loaded from comma-seperated hex-encoded hashes"""
+        """A list of identity hashes, loaded from comma-separated hex-encoded hashes"""
         raw = self._raw(name)
         if raw is None:
             return default

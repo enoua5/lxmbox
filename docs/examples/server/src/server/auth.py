@@ -42,9 +42,9 @@ class ReticulumAuth:
 
         Args:
             allowed_identity_hashes: A list of identities that are allowed
-            identity_allowed_file: A path to a file containing either a newline-seperated list of
+            identity_allowed_file: A path to a file containing either a newline-separated list of
                 allowed identity hashes in hex, or if executable, a program that accepts
-                a hex identity hash as a command-line argument and returns a newline-seperated list
+                a hex identity hash as a command-line argument and returns a newline-separated list
                 of identity hashes in hex to stdout ran per check
         """
 

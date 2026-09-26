@@ -51,8 +51,8 @@ __all__ = [
     "MailboxModel",
     "TokenPair",
     "UpdatedStates",
-    "default_ingest_tags",
-    "default_managed_metadata",
+    "default_initial_metadata",
+    "default_initial_tags",
 ]
 
 logger = logging.getLogger(__name__)
@@ -61,19 +61,19 @@ SERVER_DEFINED_TAG_NAMES: Final[dict[int, str]] = {tag.value: tag.name for tag i
 """The Server-Defined Tags every mailbox holds, named as the specification names them"""
 
 DEFAULT_INITIAL_TAGS: Final[frozenset[int]] = frozenset({ServerTag.UNREAD})
-"""The tags the default `ingest_tags` policy puts on every ingested message"""
+"""The tags the default `get_initial_tags` policy puts on every ingested message"""
 
 DEFAULT_MANAGED_METADATA_KEYS: Final[frozenset[int]] = frozenset({MetadataKey.RECEIVE_TIME})
 """The metadata keys a mailbox manages — and refuses from clients — unless configured otherwise"""
 
 
-def default_ingest_tags(message: StoredMessage) -> Iterable[int]:
+def default_initial_tags(message: StoredMessage) -> Iterable[int]:
     """Default handler for tagging newly ingested messages"""
     return DEFAULT_INITIAL_TAGS
 
 
-def default_managed_metadata(message: StoredMessage) -> Mapping[Any, Any]:
-    """Default handler for adding metadata to newly ingested messaged"""
+def default_initial_metadata(message: StoredMessage) -> Mapping[Any, Any]:
+    """Default handler for adding metadata to newly stored messages"""
     return {MetadataKey.RECEIVE_TIME: datetime.datetime.now(datetime.UTC)}
 
 
@@ -110,8 +110,8 @@ class MailboxModel:
         self,
         store: Store,
         *,
-        get_initial_tags: Callable[[StoredMessage], Iterable[int]] = default_ingest_tags,
-        get_initial_metadata: Callable[[StoredMessage], Mapping[Any, Any]] = default_managed_metadata,
+        get_initial_tags: Callable[[StoredMessage], Iterable[int]] = default_initial_tags,
+        get_initial_metadata: Callable[[StoredMessage], Mapping[Any, Any]] = default_initial_metadata,
         managed_metadata_keys: Iterable[Any] = DEFAULT_MANAGED_METADATA_KEYS,
     ) -> None:
         """
@@ -339,7 +339,7 @@ class MailboxModel:
         """
         Store a message the server itself received or sent — LXMF delivery, or an outbox copy.
 
-        The mailbox's server-side ingest-tag and managed-metadata policies are applied on top of
+        The mailbox's server-side initial-tag and initial-metadata policies are applied on top of
         the client-provided `tags` and `metadata`.
 
         A message id already present is the same message redelivered: nothing changes and nothing is returned.
@@ -370,8 +370,8 @@ class MailboxModel:
         Store client-supplied messages opaquely, without parsing them.
 
         Each upload is given a fresh UUID and is stored as its own copy. `metadata` is
-        client-supplied and checked; the managed-metadata policy is recorded on top of it.
-        The ingest-tag policy does not apply as uploads are the client's own memos rather than mail.
+        client-supplied and checked; the initial-metadata policy is recorded on top of it.
+        The initial-tag policy does not apply as uploads are the client's own memos rather than mail.
 
         Returns:
             The updated states, and the id stored for each message in the order supplied.

@@ -2,8 +2,10 @@
 Tests for `MailboxModel`, the mailbox-state rules
 """
 
-from collections.abc import Sequence
+import datetime
+from collections.abc import Iterable, Sequence
 from collections.abc import Set as AbstractSet
+from itertools import count
 from typing import Any
 
 import pytest
@@ -29,7 +31,14 @@ from rnmmp_core import (
     UnknownTagError,
     pack,
 )
-from rnmmp_server import LogEntry, MailboxModel, MemoryStore, MessageIndex, StoredMessage
+from rnmmp_server import (
+    LogEntry,
+    MailboxModel,
+    MemoryStore,
+    MessageIndex,
+    StoredMessage,
+    default_initial_metadata,
+)
 
 MID = b"\x11" * 32
 OTHER_MID = b"\x22" * 32
@@ -352,6 +361,149 @@ class TestIngest:
     def test_a_bare_ingest_touches_only_the_mail_list(self) -> None:
         """A Collection that did not change MUST NOT appear in Updated States."""
         assert set(fresh().ingest(MID, b"raw", lxmf=True)) == {Collection.MAIL_LIST}
+
+
+class TestIngestPolicies:
+    """The mailbox's own policies for what a newly stored message gets"""
+
+    LXMF_HEAD = bytes(range(48)) * 2
+    LXMF_RAW = LXMF_HEAD + pack([1790000000.5, b"the title", b"the content", {}])
+
+    def test_a_default_mailbox_adds_unread_receive_time(self) -> None:
+        """The mailbox model by default adds unread and receive tags"""
+        model = MailboxModel(MemoryStore())
+        before = datetime.datetime.now(datetime.UTC)
+        model.ingest(MID, b"raw", lxmf=True)
+        after = datetime.datetime.now(datetime.UTC)
+
+        assert model.tags_of([MID]) == [[int(ServerTag.UNREAD)]]
+        [metadata] = model.metadata_of([MID])
+        assert metadata is not None and set(metadata) == {int(MetadataKey.RECEIVE_TIME)}
+        assert before <= metadata[int(MetadataKey.RECEIVE_TIME)] <= after
+
+    def test_the_default_initial_metadata_is_a_utc_receive_time(self) -> None:
+        """`RECEIVE_TIME` is a timezone-aware stamp of the moment the mailbox took the message"""
+        before = datetime.datetime.now(datetime.UTC)
+        recorded = default_initial_metadata(StoredMessage(MID, b"raw", lxmf=True))
+        after = datetime.datetime.now(datetime.UTC)
+
+        assert set(recorded) == {int(MetadataKey.RECEIVE_TIME)}
+        stamp = recorded[int(MetadataKey.RECEIVE_TIME)]
+        assert stamp.tzinfo is not None
+        assert before <= stamp <= after
+
+    def test_policy_tags_join_the_caller_tags(self) -> None:
+        """Ingest tags union rather than replace"""
+        model = MailboxModel(MemoryStore())
+        model.ingest(MID, b"raw", lxmf=True, tags=[ServerTag.OUTBOX])
+
+        assert model.tags_of([MID]) == [[int(ServerTag.OUTBOX), int(ServerTag.UNREAD)]]
+
+    def test_caller_metadata_overrides_the_managed_stamp(self) -> None:
+        """An import carries its original `RECEIVE_TIME`"""
+        model = MailboxModel(MemoryStore())
+        model.ingest(MID, b"raw", lxmf=True, metadata={int(MetadataKey.RECEIVE_TIME): 12345})
+
+        assert model.metadata_of([MID]) == [{int(MetadataKey.RECEIVE_TIME): 12345}]
+
+    def test_upload_adds_metadata_but_not_tags(self) -> None:
+        """Uploads are the client's own memos rather than mail, so the tag policy does not apply"""
+        model = MailboxModel(MemoryStore())
+        _, ids = model.upload([b"a"])
+
+        [metadata] = model.metadata_of(ids)
+
+        assert model.tags_of(ids) == [[]]
+        assert metadata is not None and set(metadata) == {int(MetadataKey.RECEIVE_TIME)}
+
+    def test_the_policies_apply_on_the_raw_ingest_path(self) -> None:
+        """`ingest_raw` is mail the server took in, so it is tagged"""
+        model = MailboxModel(MemoryStore())
+
+        model.ingest_raw(b"not lxmf at all")
+
+        (message_id,) = model.sync(Collection.MAIL_LIST, INITIAL_STATE_TOKEN)[0][ADDED]
+        assert len(message_id) == 16
+        assert model.tags_of([message_id]) == [[int(ServerTag.UNREAD)]]
+        [metadata] = model.metadata_of([message_id])
+        assert metadata is not None and set(metadata) == {int(MetadataKey.RECEIVE_TIME)}
+
+    def test_the_metadata_policy_runs_once_per_uploaded_message(self) -> None:
+        """Each upload is its own message and is initialized independantly"""
+        initializations = count()
+        model = MailboxModel(MemoryStore(), get_initial_metadata=lambda message: {"n": next(initializations)})
+
+        _, ids = model.upload([b"a", b"b", b"c"])
+
+        assert model.metadata_of(ids) == [{"n": 0}, {"n": 1}, {"n": 2}]
+
+    def test_the_tag_policy_reads_the_message_it_tags(self) -> None:
+        """Tag initialization may depend on the message"""
+
+        def flag_suspicious(message: StoredMessage) -> Iterable[int]:
+            return [ServerTag.SUSPICIOUS] if b"click here" in message.raw else []
+
+        model = MailboxModel(MemoryStore(), get_initial_tags=flag_suspicious)
+        model.ingest(MID, b"please click here", lxmf=True)
+        model.ingest(OTHER_MID, b"ordinary mail", lxmf=True)
+
+        assert model.tags_of([MID, OTHER_MID]) == [[int(ServerTag.SUSPICIOUS)], []]
+
+    def test_a_policy_sees_an_ingested_message_with_its_lxmf_portions_parsed(self) -> None:
+        """The record is built before the policies run, so a policy can read the LXMF data"""
+        model = MailboxModel(MemoryStore(), get_initial_metadata=lambda message: {"title": message.title})
+        model.ingest(MID, self.LXMF_RAW, lxmf=True)
+
+        assert model.metadata_of([MID]) == [{"title": b"the title"}]
+
+    def test_a_policy_sees_an_uploaded_message_as_not_lxmf(self) -> None:
+        """Uploads are stored opaquely and never parsed, LXMF-shaped bytes included"""
+        model = MailboxModel(MemoryStore(), get_initial_metadata=lambda message: {"lxmf": message.lxmf})
+        _, ids = model.upload([self.LXMF_RAW])
+
+        assert model.metadata_of(ids) == [{"lxmf": False}]
+
+    def test_a_policy_tag_that_does_not_exist_is_refused(self) -> None:
+        """Policy tags are checked like caller tags"""
+        model = MailboxModel(MemoryStore(), get_initial_tags=lambda message: [42])
+
+        with pytest.raises(UnknownTagError):
+            model.ingest(MID, b"raw", lxmf=True)
+
+    def test_a_redelivered_message_is_not_re_initialized(self) -> None:
+        """Nothing changes on redelivery, so initialization must not be rerun"""
+        seen: list[bytes] = []
+
+        def record(message: StoredMessage) -> dict[Any, Any]:
+            seen.append(message.message_id)
+            return {}
+
+        model = MailboxModel(MemoryStore(), get_initial_metadata=record)
+        model.ingest(MID, b"raw", lxmf=True)
+        model.ingest(MID, b"raw", lxmf=True)
+
+        assert seen == [MID]
+
+    def test_the_configured_managed_keys_are_what_clients_may_not_manage(self) -> None:
+        """`managed_metadata_keys` decides refusal of client metadata"""
+        model = MailboxModel(MemoryStore(), get_initial_metadata=initialize_nothing, managed_metadata_keys=["owner"])
+
+        with pytest.raises(ReservedMetadataKeyError):
+            model.upload([b"a"], metadata={"owner": "me"})
+
+        _, ids = model.upload([b"a"], metadata={int(MetadataKey.RECEIVE_TIME): 1})
+        assert model.metadata_of(ids) == [{int(MetadataKey.RECEIVE_TIME): 1}]
+
+    @pytest.mark.parametrize("method", ["set", "remove"])
+    def test_a_configured_managed_key_is_refused_on_a_metadata_write(self, method: str) -> None:
+        """Metadata writes check the same configured set the upload path checks"""
+        model = with_message(MailboxModel(MemoryStore(), managed_metadata_keys=["owner"]))
+
+        with pytest.raises(ReservedMetadataKeyError):
+            if method == "set":
+                model.set_metadata({MID: {"owner": "me"}})
+            else:
+                model.remove_metadata({MID: ["owner"]})
 
 
 class TestIndexOf:

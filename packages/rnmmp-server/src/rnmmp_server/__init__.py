@@ -10,8 +10,8 @@ from .model import (
     MailboxModel,
     TokenPair,
     UpdatedStates,
-    default_ingest_tags,
-    default_managed_metadata,
+    default_initial_metadata,
+    default_initial_tags,
 )
 from .service import APP_NAME, MailboxService
 from .store import ChangeSet, LogEntry, MemoryStore, MessageIndex, ScanSearch, Store, StoredMessage
@@ -37,8 +37,8 @@ __all__ = [
     "UpdatedStates",
     "__version__",
     "compose_deltas",
-    "default_ingest_tags",
-    "default_managed_metadata",
+    "default_initial_metadata",
+    "default_initial_tags",
     "make_empty_delta",
     "handle",
     "is_empty_delta",

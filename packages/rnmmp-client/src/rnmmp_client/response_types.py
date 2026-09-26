@@ -29,7 +29,7 @@ class TokenChange(NamedTuple):
     """
     new: bytes
     """
-    The new State Token for the state the the Collection is in,
+    The new State Token for the state the Collection is in,
     which the client can set as current after a fast-forward or sync
     """
 
