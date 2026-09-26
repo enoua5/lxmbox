@@ -15,7 +15,6 @@ from typing import Any
 
 from rnmmp_core import (
     PROTOCOL_VERSION,
-    MetadataKey,
     Request,
     Response,
     RnmmpError,
@@ -86,11 +85,6 @@ def _if_in_state(request: Request) -> dict[int, bytes] | None:
 def _package_updated_states(updated: UpdatedStates) -> dict[int, list[bytes]]:
     """Package `updated` to their API format: A map from Collection id to the [previous, new] pair"""
     return {collection: [pair.previous, pair.new] for collection, pair in updated.items()}
-
-
-def _receive_time() -> dict[Any, Any]:
-    """The server-managed metadata to add to stored messages"""
-    return {int(MetadataKey.RECEIVE_TIME): datetime.datetime.now(datetime.UTC)}
 
 
 ############################################################################
@@ -211,13 +205,11 @@ def _search_content(model: MailboxModel, request: Request) -> Response:
 
 
 def _upload(model: MailboxModel, request: Request) -> Response:
-    """UPLOAD: store the raw messages opaquely, with the server recording the receive time"""
+    """UPLOAD: store the raw messages opaquely, with the model recording its managed metadata"""
     raws = _bytes_items(request.get_required(0, list, name="Messages"), "Messages")
     tags = _int_items(request.get_keyed(int(UploadParam.TAGS), list, name="TAGS", default=[]), "TAGS")
     metadata = request.get_keyed(int(UploadParam.METADATA), dict, name="METADATA", default={})
-    updated, message_ids = model.upload(
-        raws, tags=tags, metadata=metadata, server_metadata=_receive_time(), if_in_state=_if_in_state(request)
-    )
+    updated, message_ids = model.upload(raws, tags=tags, metadata=metadata, if_in_state=_if_in_state(request))
     return Response.ok(request.request_id, _package_updated_states(updated), message_ids)
 
 

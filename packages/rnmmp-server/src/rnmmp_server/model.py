@@ -8,11 +8,12 @@ Everything raised here is an `RnmmpError`, ready for `Response.failure(request_i
 
 from __future__ import annotations
 
+import datetime
 import logging
 import os
 import threading
 import uuid
-from collections.abc import Iterable, Mapping, Sequence
+from collections.abc import Callable, Iterable, Mapping, Sequence
 from dataclasses import dataclass
 from itertools import islice
 from typing import Any, Final
@@ -43,12 +44,15 @@ from .deltas import compose_deltas, is_empty_delta, make_empty_delta, pack_fragm
 from .store import ChangeSet, LogEntry, MessageIndex, Store, StoredMessage
 
 __all__ = [
-    "RESERVED_METADATA_KEYS",
+    "DEFAULT_INITIAL_TAGS",
+    "DEFAULT_MANAGED_METADATA_KEYS",
     "SERVER_DEFINED_TAG_NAMES",
     "TOKEN_LENGTH",
     "MailboxModel",
     "TokenPair",
     "UpdatedStates",
+    "default_ingest_tags",
+    "default_managed_metadata",
 ]
 
 logger = logging.getLogger(__name__)
@@ -56,8 +60,22 @@ logger = logging.getLogger(__name__)
 SERVER_DEFINED_TAG_NAMES: Final[dict[int, str]] = {tag.value: tag.name for tag in ServerTag}
 """The Server-Defined Tags every mailbox holds, named as the specification names them"""
 
-RESERVED_METADATA_KEYS: Final[frozenset[Any]] = frozenset({int(MetadataKey.RECEIVE_TIME)})
-"""Metadata keys the server manages itself and refuses from clients"""
+DEFAULT_INITIAL_TAGS: Final[frozenset[int]] = frozenset({ServerTag.UNREAD})
+"""The tags the default `ingest_tags` policy puts on every ingested message"""
+
+DEFAULT_MANAGED_METADATA_KEYS: Final[frozenset[int]] = frozenset({MetadataKey.RECEIVE_TIME})
+"""The metadata keys a mailbox manages — and refuses from clients — unless configured otherwise"""
+
+
+def default_ingest_tags(message: StoredMessage) -> Iterable[int]:
+    """Default handler for tagging newly ingested messages"""
+    return DEFAULT_INITIAL_TAGS
+
+
+def default_managed_metadata(message: StoredMessage) -> Mapping[Any, Any]:
+    """Default handler for adding metadata to newly ingested messaged"""
+    return {MetadataKey.RECEIVE_TIME: datetime.datetime.now(datetime.UTC)}
+
 
 TOKEN_LENGTH: Final = 8
 """State Token length in bytes; tokens are opaque and random"""
@@ -88,15 +106,34 @@ def _valid_metadata_key(key: object) -> bool:
 class MailboxModel:
     """One mailbox's state, with the operations the requests need"""
 
-    def __init__(self, store: Store) -> None:
+    def __init__(
+        self,
+        store: Store,
+        *,
+        get_initial_tags: Callable[[StoredMessage], Iterable[int]] = default_ingest_tags,
+        get_initial_metadata: Callable[[StoredMessage], Mapping[Any, Any]] = default_managed_metadata,
+        managed_metadata_keys: Iterable[Any] = DEFAULT_MANAGED_METADATA_KEYS,
+    ) -> None:
         """
         Initialize a mailbox with data stored using `store`,
         seeding the Server-Defined Tags if they are not present.
 
         Seeding changes no State Token: the Initial State of the TAG_LIST Collection already
         includes the Server-Defined Tags.
+
+        Args:
+            store: The interface backing data storage for the mailbox
+            get_initial_tags: Function taking a message being ingested
+                and returning the tags it should be initialized with
+            get_initial_metadata: Function taking a message being ingested
+                and returning the metadata it should be initialized with
+            managed_metadata_keys: The metadata keys the server forbids
+                the client from modifying on messages
         """
         self._store = store
+        self._get_initial_tags = get_initial_tags
+        self._get_initial_metadata = get_initial_metadata
+        self._managed_metadata_keys = frozenset(managed_metadata_keys)
         self._lock = threading.Lock()
         missing = {
             tag_id: name for tag_id, name in SERVER_DEFINED_TAG_NAMES.items() if tag_id not in store.get_all_tags()
@@ -302,8 +339,10 @@ class MailboxModel:
         """
         Store a message the server itself received or sent — LXMF delivery, or an outbox copy.
 
-        Server-side, so `metadata` is trusted (this is how `RECEIVE_TIME` gets set). A message id
-        already present is the same message redelivered: nothing changes and nothing is returned.
+        The mailbox's server-side ingest-tag and managed-metadata policies are applied on top of
+        the client-provided `tags` and `metadata`.
+
+        A message id already present is the same message redelivered: nothing changes and nothing is returned.
 
         Raises:
             UnknownTagError: for a tag id not in the TAG_LIST Collection.
@@ -311,11 +350,13 @@ class MailboxModel:
         with self._lock:
             if self._store.get_existing_message_ids([message_id]):
                 return {}
+            message = StoredMessage.from_raw(message_id, raw, lxmf=lxmf)
             tag_ids = {int(tag_id) for tag_id in tags}
+            tag_ids |= {int(tag_id) for tag_id in self._get_initial_tags(message)}
             self._require_tags(tag_ids)
-            return self._add_message(
-                StoredMessage.from_raw(message_id, raw, lxmf=lxmf), tag_ids, dict(metadata or {}), if_in_state=None
-            )
+            initial_metadata = self._get_initial_metadata(message)
+            combined_metadata = {**dict(initial_metadata), **dict(metadata or {})}
+            return self._add_message(message, tag_ids, combined_metadata, if_in_state=None)
 
     def upload(
         self,
@@ -323,15 +364,14 @@ class MailboxModel:
         *,
         tags: Iterable[int] = (),
         metadata: Mapping[Any, Any] | None = None,
-        server_metadata: Mapping[Any, Any] | None = None,
         if_in_state: Mapping[int, bytes] | None = None,
     ) -> tuple[UpdatedStates, list[bytes]]:
         """
         Store client-supplied messages opaquely, without parsing them.
 
-        Each upload takes a fresh UUID id and is stored as its own copy.
-        `metadata` is client-supplied and checked;
-        `server_metadata` is the server's own additions, unchecked.
+        Each upload is given a fresh UUID and is stored as its own copy. `metadata` is
+        client-supplied and checked; the managed-metadata policy is recorded on top of it.
+        The ingest-tag policy does not apply as uploads are the client's own memos rather than mail.
 
         Returns:
             The updated states, and the id stored for each message in the order supplied.
@@ -348,7 +388,6 @@ class MailboxModel:
             self._require_tags(tag_ids)
             client_metadata = dict(metadata or {})
             self._require_client_keys(client_metadata)
-            combined = {**client_metadata, **dict(server_metadata or {})}
 
             updated: UpdatedStates = {}
             message_ids: list[bytes] = []
@@ -358,13 +397,16 @@ class MailboxModel:
             for raw in raws:
                 message_id = uuid.uuid4().bytes
                 message_ids.append(message_id)
-                changes.messages_added.append(StoredMessage.from_raw(message_id, raw, lxmf=False))
+                message = StoredMessage.from_raw(message_id, raw, lxmf=False)
+                changes.messages_added.append(message)
                 if tag_ids:
                     changes.tag_pairs_added.extend((message_id, tag_id) for tag_id in tag_ids)
                     message_tag_step[message_id] = sorted(tag_ids)
-                if combined:
-                    changes.metadata_set[message_id] = dict(combined)
-                    metadata_step[message_id] = dict(combined)
+                initial_metadata = self._get_initial_metadata(message)
+                combined_metadata = {**dict(initial_metadata), **client_metadata}
+                if combined_metadata:
+                    changes.metadata_set[message_id] = dict(combined_metadata)
+                    metadata_step[message_id] = dict(combined_metadata)
             if message_ids:
                 steps = {int(Collection.MAIL_LIST): self._mail_list_delta(added=message_ids, deleted=[])}
                 if message_tag_step:
@@ -594,7 +636,7 @@ class MailboxModel:
             self._require_messages(list(materialized))
             for keys in materialized.values():
                 for key in keys:
-                    if key in RESERVED_METADATA_KEYS:
+                    if key in self._managed_metadata_keys:
                         raise ReservedMetadataKeyError()
 
             changes = ChangeSet()
@@ -642,7 +684,7 @@ class MailboxModel:
     def _require_client_keys(self, entry: Mapping[Any, Any]) -> None:
         """Raise for a client-supplied metadata key the server refuses"""
         for key in entry:
-            if key in RESERVED_METADATA_KEYS:
+            if key in self._managed_metadata_keys:
                 raise ReservedMetadataKeyError()
             if not _valid_metadata_key(key):
                 raise InvalidMetadataKeyError()

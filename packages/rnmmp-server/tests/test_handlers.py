@@ -162,11 +162,13 @@ class TestFetch:
         assert ask(model, request_type, [upload_id]).parameters == [[expected]]
 
     def test_fetch_tags_and_metadata_shapes(self) -> None:
-        """Tags and Metadata come back per message: empty for a bare message, `nil` for a missing one."""
+        """Tags and Metadata come back per message, `nil` for a missing one."""
         model = mailbox()
 
         assert ask(model, RequestType.FETCH_TAGS, [MID, b"missing"]).parameters == [[[-1], None]]
-        assert ask(model, RequestType.FETCH_METADATA, [MID, b"missing"]).parameters == [[{}, None]]
+        [[metadata, missing]] = ask(model, RequestType.FETCH_METADATA, [MID, b"missing"]).parameters
+        assert missing is None
+        assert isinstance(metadata[int(MetadataKey.RECEIVE_TIME)], datetime.datetime)
 
     def test_a_non_bytes_message_id_is_a_wrong_type(self) -> None:
         """Every item of Message IDs must be Bytes."""
@@ -261,7 +263,9 @@ class TestWrites:
 
     def test_delete_returns_only_the_changed_collections(self) -> None:
         """A Collection that did not change MUST NOT appear in Updated States."""
-        model = MailboxModel(MemoryStore())
+        model = MailboxModel(
+            MemoryStore(), get_initial_tags=lambda message: (), get_initial_metadata=lambda message: {}
+        )
         model.ingest(MID, LXMF_RAW, lxmf=True)
 
         (updated,) = ask(model, RequestType.DELETE, [MID]).parameters

@@ -37,9 +37,19 @@ ADDED = int(MailListDeltaKey.ADDED)
 DELETED = int(MailListDeltaKey.DELETED)
 
 
+def initialize_nothing(message: StoredMessage) -> dict[Any, Any]:
+    """The policy of a mailbox that adds nothing of its own"""
+    return {}
+
+
 def fresh(**store_args: int) -> MailboxModel:
     """A model over an empty in-memory store."""
-    return MailboxModel(MemoryStore(**store_args))
+    return MailboxModel(
+        MemoryStore(**store_args),
+        get_initial_tags=initialize_nothing,
+        get_initial_metadata=initialize_nothing,
+        managed_metadata_keys=(),
+    )
 
 
 def with_message(model: MailboxModel | None = None, message_id: bytes = MID) -> MailboxModel:
@@ -529,7 +539,7 @@ class TestUpload:
     def test_a_reserved_client_key_is_refused(self) -> None:
         """A METADATA key the server manages itself is not accepted from a client."""
         with pytest.raises(ReservedMetadataKeyError):
-            fresh().upload([b"a"], metadata={int(MetadataKey.RECEIVE_TIME): 1})
+            MailboxModel(MemoryStore()).upload([b"a"], metadata={int(MetadataKey.RECEIVE_TIME): 1})
 
     @pytest.mark.parametrize("key", [pytest.param(True, id="bool"), pytest.param((1,), id="tuple")])
     def test_an_invalid_client_key_is_refused(self, key: Any) -> None:
@@ -537,10 +547,10 @@ class TestUpload:
         with pytest.raises(InvalidMetadataKeyError):
             fresh().upload([b"a"], metadata={key: 1})
 
-    def test_server_metadata_bypasses_the_client_checks(self) -> None:
+    def test_managed_metadata_is_recorded(self) -> None:
         """The server MAY set Metadata the client did not specify — its own keys included."""
-        model = fresh()
-        _, ids = model.upload([b"a"], server_metadata={int(MetadataKey.RECEIVE_TIME): 99})
+        model = MailboxModel(MemoryStore(), get_initial_metadata=lambda message: {int(MetadataKey.RECEIVE_TIME): 99})
+        _, ids = model.upload([b"a"])
 
         assert model.metadata_of(ids) == [{int(MetadataKey.RECEIVE_TIME): 99}]
 
@@ -788,7 +798,7 @@ class TestMetadataWrites:
     @pytest.mark.parametrize("method", ["set", "remove"])
     def test_a_reserved_key_is_refused(self, method: str) -> None:
         """A supplied key is one the server manages itself."""
-        model = with_message()
+        model = with_message(MailboxModel(MemoryStore()))
 
         with pytest.raises(ReservedMetadataKeyError):
             if method == "set":
