@@ -370,7 +370,7 @@ class TestIngestPolicies:
     LXMF_RAW = LXMF_HEAD + pack([1790000000.5, b"the title", b"the content", {}])
 
     def test_a_default_mailbox_adds_unread_receive_time(self) -> None:
-        """The mailbox model by default adds unread and receive tags"""
+        """The mailbox model by default adds the UNREAD tag and a RECEIVE_TIME metadata"""
         model = MailboxModel(MemoryStore())
         before = datetime.datetime.now(datetime.UTC)
         model.ingest(MID, b"raw", lxmf=True)
@@ -429,7 +429,7 @@ class TestIngestPolicies:
         assert metadata is not None and set(metadata) == {int(MetadataKey.RECEIVE_TIME)}
 
     def test_the_metadata_policy_runs_once_per_uploaded_message(self) -> None:
-        """Each upload is its own message and is initialized independantly"""
+        """Each upload is its own message and is initialized independently"""
         initializations = count()
         model = MailboxModel(MemoryStore(), get_initial_metadata=lambda message: {"n": next(initializations)})
 
