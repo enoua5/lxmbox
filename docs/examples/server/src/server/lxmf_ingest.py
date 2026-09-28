@@ -3,9 +3,16 @@
 import LXMF
 import RNS
 
+from rnmmp_core import ServerTag
 from rnmmp_server import MailboxModel
 
 from .config import Config
+
+UNVERIFIED_REASONS = {
+    LXMF.LXMessage.SOURCE_UNKNOWN: "source unknown",
+    LXMF.LXMessage.SIGNATURE_INVALID: "signature invalid",
+}
+"""Why LXMF could not verify a delivered message, for logging"""
 
 
 class LxmfIngest:
@@ -34,9 +41,23 @@ class LxmfIngest:
         RNS.log("Ready to receive on: " + RNS.prettyhexrep(destination.hash))
 
     def on_delivery(self, message: LXMF.LXMessage) -> None:
-        """Handle LXMF delivery"""
+        """
+        Handle LXMF delivery.
 
-        self._mailbox.ingest_lxmf(message)
+        NOTE the server implementation must handle signature validation,
+        the `rnmmp_server` library just trusts whatever it's handed.
+
+        In this example, we accept the message but add a `SUSPICIOUS` tag to it.
+        Rejecting the message entirely would also be a reasonable action to take.
+        """
+
+        tags = []
+        if not message.signature_validated:
+            reason = UNVERIFIED_REASONS.get(message.unverified_reason, "unknown reason")
+            RNS.log(f"Ingesting an unverified message ({reason})", RNS.LOG_WARNING)
+            tags.append(ServerTag.SUSPICIOUS)
+
+        self._mailbox.ingest_lxmf(message, tags=tags)
 
     def announce(self) -> None:
         """Announce destination"""

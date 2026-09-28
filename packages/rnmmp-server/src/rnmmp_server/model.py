@@ -296,26 +296,41 @@ class MailboxModel:
     def ingest_raw(
         self,
         message: bytes,
-    ) -> UpdatedStates:
-        """Ingest a raw non-LXMF message"""
+        *,
+        tags: Iterable[int] = (),
+        metadata: Mapping[Any, Any] | None = None,
+    ) -> tuple[UpdatedStates, bytes]:
+        """
+        Ingest a raw non-LXMF message, as its raw unparsed content, with a UUID message id.
 
-        # TODO we're already requiring a Store to not re-derive LXMF fields
-        # Maybe `ingest_raw` should take `title`, `timestamp`, `metadata`, etc
-        # in case an incoming message is, say, MIME and has close approximates to those fields
-        # Will take a spec update though, I think
+        NOTE If the server knows the format the message arrives in and can derive Title or
+        Timestamp details from it (e.g. MIME arriving through an SMTP extension), it can implement
+        its own ingest method that handles those details.
 
-        return self.ingest(
-            uuid.uuid4().bytes,
-            message,
-            lxmf=False,
-        )
+        Returns:
+            The updated states, and the id the message was stored under.
+        """
+        message_id = uuid.uuid4().bytes
+        return self.ingest(message_id, message, lxmf=False, tags=tags, metadata=metadata), message_id
 
     def ingest_lxmf(
         self,
         message: LXMF.LXMessage,
+        *,
+        tags: Iterable[int] = (),
+        metadata: Mapping[Any, Any] | None = None,
     ) -> UpdatedStates:
-        """Ingest a delivered LXMF message into the mailbox"""
+        """
+        Ingest a delivered LXMF message into the mailbox.
 
+        NOTE This method does not validate signatures.
+        It's assumed that if a message with an invalid signature is passed here,
+        the server wants to store it regardless — potentially also passing `tags` and `metadata` indicating its status.
+
+        Raises:
+            ValueError: for a message that is not packed, and so was never delivered.
+            UnknownTagError: for a tag id not in the TAG_LIST Collection.
+        """
         if not message.packed:
             # Delivered messages always carry their packed bytes
             # `message.pack()` is for outgoing mail
@@ -325,6 +340,8 @@ class MailboxModel:
             message.message_id,
             message.packed,
             lxmf=True,
+            tags=tags,
+            metadata=metadata,
         )
 
     def ingest(
