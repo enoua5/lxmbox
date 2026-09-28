@@ -7,7 +7,6 @@ so we're running a "real" Reticulum network confined to localhost.
 
 import datetime
 import json
-import socket
 import subprocess
 import sys
 import threading
@@ -47,22 +46,6 @@ LXMF_HEAD = bytes(range(48)) * 2
 SMALL_RAW = LXMF_HEAD + pack([1757900000.5, b"the title", b"the content", {7: b"field"}])
 BIG_CONTENT = b"\xab" * 3000
 BIG_RAW = LXMF_HEAD + pack([1.0, b"big", BIG_CONTENT, {}])
-
-CLIENT_CONFIG = """[reticulum]
-  enable_transport = False
-  share_instance = No
-  panic_on_interface_error = False
-
-[logging]
-  loglevel = 0
-
-[interfaces]
-  [[TCP Client]]
-    type = TCPClientInterface
-    enabled = True
-    target_host = 127.0.0.1
-    target_port = {port}
-"""
 
 
 @dataclass(frozen=True)
@@ -128,13 +111,10 @@ class LinkClient:
 
 
 @pytest.fixture(scope="session")
-def service_environment(tmp_path_factory: pytest.TempPathFactory) -> Iterator[ServiceEnvironment]:
-    """The child-process server and this process's client Reticulum, torn down with the session."""
+def service_environment(tmp_path_factory: pytest.TempPathFactory, reticulum_hub: int) -> Iterator[ServiceEnvironment]:
+    """The child-process server, dialled in to this process's Reticulum, torn down with the session."""
     rundir = tmp_path_factory.mktemp("rnmmp-integration")
-    with socket.socket() as probe:
-        # Bind a random free port
-        probe.bind(("127.0.0.1", 0))
-        port = probe.getsockname()[1]
+    port = reticulum_hub
 
     # Configure the test server
     identity = RNS.Identity()
@@ -156,11 +136,6 @@ def service_environment(tmp_path_factory: pytest.TempPathFactory) -> Iterator[Se
             assert time.time() < deadline, "server never reported its destination"
             time.sleep(0.1)
         destination_hash = bytes.fromhex(json.loads((rundir / "server.json").read_text())["destination"])
-
-        confdir = rundir / "client-conf"
-        confdir.mkdir()
-        (confdir / "config").write_text(CLIENT_CONFIG.format(port=port))
-        RNS.Reticulum(configdir=str(confdir))
 
         RNS.Transport.request_path(destination_hash)
         deadline = time.time() + 15

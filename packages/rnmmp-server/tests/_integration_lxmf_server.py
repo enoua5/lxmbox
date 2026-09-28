@@ -1,10 +1,7 @@
 """
-A test implementation server using the server protocol implementation.
-
-Built from a fixture (`test_service.service_environment`) for end-to-end tests.
+A test server that takes LXMF delivery and serves the mailbox over rnmmp
 """
 
-import datetime
 import json
 import os
 import sys
@@ -29,11 +26,10 @@ CONFIG = """[reticulum]
 
 def main() -> None:
     """
-    Serve the mailbox described in the run directory until terminated
+    Serve a mailbox taking in LXMF delivery.
 
-    Reads `mailbox.json` from the set up run directory for settings and initial state
-
-    Dumps `server.json` in the same directory with the destination hash on launch
+    Reads `mailbox.json` from the run directory for the identity allowed to use rnmmp,
+    and writes `server.json` with both destination hashes once they exist.
     """
     port, rundir = int(sys.argv[1]), sys.argv[2]
     confdir = os.path.join(rundir, "server-conf")
@@ -41,11 +37,12 @@ def main() -> None:
     with open(os.path.join(confdir, "config"), "w") as config:
         config.write(CONFIG.format(port=port))
 
+    import LXMF
     import RNS
 
     RNS.Reticulum(configdir=confdir)
 
-    from rnmmp_core import MetadataKey
+    from rnmmp_core import ServerTag
     from rnmmp_server import MailboxModel, MailboxService, MemoryStore
 
     with open(os.path.join(rundir, "mailbox.json")) as mailbox_file:
@@ -53,21 +50,31 @@ def main() -> None:
     authorized_hash = bytes.fromhex(spec["authorized"])
 
     model = MailboxModel(MemoryStore())
-    for message in spec["messages"]:
-        model.ingest(
-            bytes.fromhex(message["id"]),
-            bytes.fromhex(message["raw"]),
-            lxmf=True,
-            tags=message["tags"],
-            metadata={int(MetadataKey.RECEIVE_TIME): datetime.datetime.now(datetime.UTC)},
-        )
+
+    delivery_identity = RNS.Identity()
+    router = LXMF.LXMRouter(storagepath=os.path.join(rundir, "lxmf"))
+    delivery_destination = router.register_delivery_identity(delivery_identity, display_name="Integration Mailbox")
+
+    def on_delivery(message: LXMF.LXMessage) -> None:
+        """Ingest a delivered message, marking it if LXMF could not verify it"""
+        tags = [] if message.signature_validated else [ServerTag.SUSPICIOUS]
+        model.ingest_lxmf(message, tags=tags)
+
+    router.register_delivery_callback(on_delivery)
 
     service = MailboxService(model, RNS.Identity(), authorized=lambda sender: sender == authorized_hash)
     with open(os.path.join(rundir, "server.json"), "w") as report:
-        json.dump({"destination": service.destination_hash.hex()}, report)
+        json.dump(
+            {
+                "destination": service.destination_hash.hex(),
+                "delivery": bytes(delivery_destination.hash).hex(),
+            },
+            report,
+        )
 
     while True:
         service.announce()
+        router.announce(delivery_destination.hash)
         time.sleep(2)
 
 

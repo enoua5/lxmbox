@@ -6,7 +6,7 @@ import LXMF
 import pytest
 import RNS
 
-from rnmmp_core import Collection, MetadataKey, ServerTag
+from rnmmp_core import Collection, MetadataKey, ServerTag, UnknownTagError
 from rnmmp_server import MailboxModel, MemoryStore, StoredMessage
 
 
@@ -87,3 +87,48 @@ class TestIngestLxmf:
         model.ingest_lxmf(message)
 
         assert model.ingest_lxmf(message) == {}
+
+
+class TestCallerSuppliedTagsAndMetadata:
+    """What the server adds alongside what the policies' tags and metadata"""
+
+    def test_caller_tags_join_the_initial_tags(self) -> None:
+        """An outbox copy is filed `OUTBOX` and also the initial tags"""
+        message = delivered()
+        model = MailboxModel(MemoryStore())
+
+        model.ingest_lxmf(message, tags=[ServerTag.OUTBOX])
+
+        assert model.tags_of([message.hash]) == [[int(ServerTag.OUTBOX), int(ServerTag.UNREAD)]]
+
+    def test_caller_metadata_is_added_to_the_record(self) -> None:
+        """Server-side metadata is trusted, so a managed key may be set here"""
+        message = delivered()
+        model = MailboxModel(MemoryStore())
+
+        model.ingest_lxmf(message, metadata={int(MetadataKey.RECEIVE_TIME): 12345, "route": "direct"})
+
+        assert model.metadata_of([message.hash]) == [{int(MetadataKey.RECEIVE_TIME): 12345, "route": "direct"}]
+
+    def test_an_unknown_caller_tag_is_refused(self) -> None:
+        """Tags must exist to be added"""
+        with pytest.raises(UnknownTagError):
+            MailboxModel(MemoryStore()).ingest_lxmf(delivered(), tags=[42])
+
+
+class TestSignatureValidation:
+    """
+    The server library trusts what the server hands it.
+    If the server hands us an unverified message, we assume they want to store it anyway,
+    """
+
+    def test_an_unverified_message_is_stored_anyway(self) -> None:
+        """`ingest_lxmf` does not check `signature_validated`"""
+        message = delivered()
+        message.signature_validated = False
+        message.unverified_reason = LXMF.LXMessage.SIGNATURE_INVALID
+        model = MailboxModel(MemoryStore())
+
+        model.ingest_lxmf(message)
+
+        assert model.tags_of([message.hash]) == [[int(ServerTag.UNREAD)]]

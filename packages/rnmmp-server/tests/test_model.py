@@ -45,6 +45,9 @@ OTHER_MID = b"\x22" * 32
 ADDED = int(MailListDeltaKey.ADDED)
 DELETED = int(MailListDeltaKey.DELETED)
 
+LXMF_HEAD = bytes(range(48)) * 2
+LXMF_RAW = LXMF_HEAD + pack([1790000000.5, b"the title", b"the content", {}])
+
 
 def initialize_nothing(message: StoredMessage) -> dict[Any, Any]:
     """The policy of a mailbox that adds nothing of its own"""
@@ -363,11 +366,56 @@ class TestIngest:
         assert set(fresh().ingest(MID, b"raw", lxmf=True)) == {Collection.MAIL_LIST}
 
 
+class TestIngestRaw:
+    """Non-LXMF mail ingest flow"""
+
+    def test_the_returned_id_is_the_id_the_message_was_stored_under(self) -> None:
+        """The caller needs the id for any follow-up"""
+        model = MailboxModel(MemoryStore())
+
+        updated, message_id = model.ingest_raw(b"not an lxmf message")
+
+        assert len(message_id) == 16
+        assert updated[Collection.MAIL_LIST].previous == INITIAL_STATE_TOKEN
+        assert model.sync(Collection.MAIL_LIST, INITIAL_STATE_TOKEN)[0][ADDED] == [message_id]
+
+    def test_the_message_is_stored_verbatim_and_unparsed(self) -> None:
+        """Raw makes no attempt to parse a message, even if it's parseable"""
+        model = MailboxModel(MemoryStore())
+        raw = LXMF_RAW
+
+        _, message_id = model.ingest_raw(raw)
+
+        (index,) = model.index_of([message_id])
+        record = model.get_messages([message_id])[0]
+        assert index == MessageIndex(message_id, False, None, None, None)
+        assert isinstance(record, StoredMessage) and record.raw == raw
+
+    def test_caller_tags_and_metadata_are_applied(self) -> None:
+        """Tags and metadata are applied as specified"""
+        model = MailboxModel(MemoryStore())
+
+        _, message_id = model.ingest_raw(b"raw", tags=[ServerTag.IMPORTANT], metadata={"gateway": "smtp"})
+
+        [metadata] = model.metadata_of([message_id])
+
+        assert model.tags_of([message_id]) == [[int(ServerTag.IMPORTANT), int(ServerTag.UNREAD)]]
+        assert metadata is not None and metadata["gateway"] == "smtp"
+        assert set(metadata) == {"gateway", int(MetadataKey.RECEIVE_TIME)}
+
+    def test_each_raw_ingest_is_its_own_message(self) -> None:
+        """Identical bytes are two messages, since there is no consistent id to check"""
+        model = MailboxModel(MemoryStore())
+
+        _, first = model.ingest_raw(b"same bytes")
+        _, second = model.ingest_raw(b"same bytes")
+
+        assert first != second
+        assert sorted(model.sync(Collection.MAIL_LIST, INITIAL_STATE_TOKEN)[0][ADDED]) == sorted([first, second])
+
+
 class TestIngestPolicies:
     """The mailbox's own policies for what a newly stored message gets"""
-
-    LXMF_HEAD = bytes(range(48)) * 2
-    LXMF_RAW = LXMF_HEAD + pack([1790000000.5, b"the title", b"the content", {}])
 
     def test_a_default_mailbox_adds_unread_receive_time(self) -> None:
         """The mailbox model by default adds the UNREAD tag and a RECEIVE_TIME metadata"""
@@ -420,10 +468,8 @@ class TestIngestPolicies:
         """`ingest_raw` is mail the server took in, so it is tagged"""
         model = MailboxModel(MemoryStore())
 
-        model.ingest_raw(b"not lxmf at all")
+        _, message_id = model.ingest_raw(b"not lxmf at all")
 
-        (message_id,) = model.sync(Collection.MAIL_LIST, INITIAL_STATE_TOKEN)[0][ADDED]
-        assert len(message_id) == 16
         assert model.tags_of([message_id]) == [[int(ServerTag.UNREAD)]]
         [metadata] = model.metadata_of([message_id])
         assert metadata is not None and set(metadata) == {int(MetadataKey.RECEIVE_TIME)}
@@ -452,14 +498,14 @@ class TestIngestPolicies:
     def test_a_policy_sees_an_ingested_message_with_its_lxmf_portions_parsed(self) -> None:
         """The record is built before the policies run, so a policy can read the LXMF data"""
         model = MailboxModel(MemoryStore(), get_initial_metadata=lambda message: {"title": message.title})
-        model.ingest(MID, self.LXMF_RAW, lxmf=True)
+        model.ingest(MID, LXMF_RAW, lxmf=True)
 
         assert model.metadata_of([MID]) == [{"title": b"the title"}]
 
     def test_a_policy_sees_an_uploaded_message_as_not_lxmf(self) -> None:
         """Uploads are stored opaquely and never parsed, LXMF-shaped bytes included"""
         model = MailboxModel(MemoryStore(), get_initial_metadata=lambda message: {"lxmf": message.lxmf})
-        _, ids = model.upload([self.LXMF_RAW])
+        _, ids = model.upload([LXMF_RAW])
 
         assert model.metadata_of(ids) == [{"lxmf": False}]
 
