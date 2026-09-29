@@ -185,6 +185,8 @@ class ServerTag(IntEnum):
     """Message is suspicious/phishing"""
     DELIVERED = -10
     """Outbox message is known to have been delivered"""
+    UNVERIFIED_SENDER = -11
+    """Message arrived without a verifiable sender"""
 
 
 class MetadataKey(IntEnum):

@@ -204,21 +204,21 @@ class TestLxmfInRnmmpOut:
 
 
 class TestSignatureHandling:
-    """Hanlding of the `signature_validated` flag"""
+    """Handling of the `signature_validated` flag"""
 
     def test_a_message_from_an_unheard_sender_arrives_unverified(self, lxmf_environment: LxmfEnvironment) -> None:
         """
         LXMF cannot check a signature whose source identity it has never heard announced.
 
         The sending destination in this fixture never announces, so the mailbox has no identity
-        to recall and the delivery is `SOURCE_UNKNOWN`, which the test mailbox records as `SUSPICIOUS`.
+        to recall and the delivery is `SOURCE_UNKNOWN`, which the test mailbox records as `UNVERIFIED_SENDER`.
         """
         client = LinkClient(lxmf_environment.destination_hash, lxmf_environment.authorized_identity)
         message = send_lxmf(lxmf_environment, b"from a stranger", b"unheard")
 
         await_message(client, message.hash)
 
-        assert ServerTag.SUSPICIOUS in tags_of(client, message.hash)
+        assert ServerTag.UNVERIFIED_SENDER in tags_of(client, message.hash)
 
     def test_a_message_verifies_once_the_sender_has_been_heard(self, lxmf_environment: LxmfEnvironment) -> None:
         """
@@ -233,7 +233,7 @@ class TestSignatureHandling:
         while True:
             message = send_lxmf(lxmf_environment, b"from a known sender", b"heard", source=source)
             await_message(client, message.hash)
-            if ServerTag.SUSPICIOUS not in tags_of(client, message.hash):
+            if ServerTag.UNVERIFIED_SENDER not in tags_of(client, message.hash):
                 break
             assert time.time() < deadline, "the sender's announce never reached the mailbox"
             router.announce(source.hash)

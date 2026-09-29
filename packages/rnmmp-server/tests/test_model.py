@@ -80,7 +80,7 @@ class TestSeeding:
     """The Server-Defined Tags every mailbox starts with."""
 
     def test_a_fresh_mailbox_serves_the_server_defined_tags(self) -> None:
-        """A client syncing TAG_LIST from the Initial State receives all ten, under the spec's names."""
+        """A client syncing TAG_LIST from the Initial State receives every one, under the spec's names."""
         delta, _ = fresh().sync(Collection.TAG_LIST, INITIAL_STATE_TOKEN)
 
         assert delta == {tag.value: tag.name for tag in ServerTag}

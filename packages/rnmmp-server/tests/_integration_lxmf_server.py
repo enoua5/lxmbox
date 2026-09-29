@@ -57,7 +57,7 @@ def main() -> None:
 
     def on_delivery(message: LXMF.LXMessage) -> None:
         """Ingest a delivered message, marking it if LXMF could not verify it"""
-        tags = [] if message.signature_validated else [ServerTag.SUSPICIOUS]
+        tags = [] if message.signature_validated else [ServerTag.UNVERIFIED_SENDER]
         model.ingest_lxmf(message, tags=tags)
 
     router.register_delivery_callback(on_delivery)

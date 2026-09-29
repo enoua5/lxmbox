@@ -47,7 +47,7 @@ class LxmfIngest:
         NOTE the server implementation must handle signature validation,
         the `rnmmp_server` library just trusts whatever it's handed.
 
-        In this example, we accept the message but add a `SUSPICIOUS` tag to it.
+        In this example, we accept the message but add an `UNVERIFIED_SENDER` tag to it.
         Rejecting the message entirely would also be a reasonable action to take.
         """
 
@@ -55,7 +55,7 @@ class LxmfIngest:
         if not message.signature_validated:
             reason = UNVERIFIED_REASONS.get(message.unverified_reason, "unknown reason")
             RNS.log(f"Ingesting an unverified message ({reason})", RNS.LOG_WARNING)
-            tags.append(ServerTag.SUSPICIOUS)
+            tags.append(ServerTag.UNVERIFIED_SENDER)
 
         self._mailbox.ingest_lxmf(message, tags=tags)
 
