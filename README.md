@@ -14,12 +14,14 @@ This protocol is an open standard and may be reimplemented by other clients and 
 lxmbox bundles the rnmmp protocol together with an LXMF destination and additional management tools into a full mailbox system.
 
 > [!INFO]
+> 
 > **Status: in early development.** There will be stubs everywhere for awhile,
 > and what does exist will have drastic breaking changes.
 
 ## Security model
 
 > [!DANGER]
+> 
 > **lxmbox has no user accounts — all authenticated users can read all mail on their instance.**
 
 Reticulum follows a philosophy of self-hosting and decentralization.
