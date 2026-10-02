@@ -62,7 +62,7 @@ def main() -> None:
             metadata={int(MetadataKey.RECEIVE_TIME): datetime.datetime.now(datetime.UTC)},
         )
 
-    service = MailboxService(model, RNS.Identity(), authorized=lambda sender: sender == authorized_hash)
+    service = MailboxService(model, RNS.Identity(), check_authorized=lambda sender: sender == authorized_hash)
     with open(os.path.join(rundir, "server.json"), "w") as report:
         json.dump({"destination": service.destination_hash.hex()}, report)
 

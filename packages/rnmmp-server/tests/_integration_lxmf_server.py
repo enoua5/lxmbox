@@ -62,7 +62,7 @@ def main() -> None:
 
     router.register_delivery_callback(on_delivery)
 
-    service = MailboxService(model, RNS.Identity(), authorized=lambda sender: sender == authorized_hash)
+    service = MailboxService(model, RNS.Identity(), check_authorized=lambda sender: sender == authorized_hash)
     with open(os.path.join(rundir, "server.json"), "w") as report:
         json.dump(
             {

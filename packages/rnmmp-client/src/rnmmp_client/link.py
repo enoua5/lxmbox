@@ -7,9 +7,10 @@ A client's connection to a mailbox.
 from __future__ import annotations
 
 import datetime
+import logging
 import threading
 import time
-from collections.abc import Iterable, Mapping
+from collections.abc import Callable, Iterable, Mapping
 from dataclasses import dataclass
 from enum import Enum, auto
 from typing import Any, Final
@@ -21,6 +22,8 @@ from rnmmp_core import (
     ConflictingFiltersError,
     Exchange,
     MalformedExchangeError,
+    Notification,
+    NotificationType,
     Request,
     RequestType,
     Response,
@@ -34,7 +37,9 @@ from .response_types import (
     Capabilities,
     CollectionDelta,
     CollectionSync,
+    CollectionUpdate,
     CreatedTags,
+    SingleModeSubscription,
     TokenChange,
     UpdatedStates,
     UploadResult,
@@ -50,8 +55,13 @@ __all__ = [
     "connect",
 ]
 
+logger = logging.getLogger(__name__)
+
 DEFAULT_TIMEOUT: Final = 30.0
 """Seconds to wait for a Response before answering `NoAnswer`"""
+
+
+_KNOWN_NOTIFICATION_TYPES: Final = (NotificationType.COLLECTION_UPDATE,)
 
 
 class UnreachableReason(Enum):
@@ -93,6 +103,7 @@ def connect(
     path_timeout: float = 15.0,
     link_timeout: float = 15.0,
     timeout: float = DEFAULT_TIMEOUT,
+    on_collection_update: Callable[[CollectionUpdate], None] | None = None,
 ) -> MailboxLink | Unreachable:
     """
     Establish an identified Link to a mailbox's `rnmmp.request` destination
@@ -103,6 +114,7 @@ def connect(
         path_timeout: Seconds to wait for a path to be found
         link_timeout: Seconds to wait for the Link to establish
         timeout: The default per-request timeout for the resulting `MailboxLink`
+        on_collection_update: Called with each COLLECTION_UPDATE the server sends
     """
     if not RNS.Transport.has_path(destination_hash):
         RNS.Transport.request_path(destination_hash)
@@ -123,23 +135,43 @@ def connect(
         link.teardown()
         return Unreachable(UnreachableReason.LINK_TIMEOUT)
     link.identify(identity)
-    return MailboxLink(LinkTransport(link), default_timeout=timeout)
+    return MailboxLink(LinkTransport(link), default_timeout=timeout, on_collection_update=on_collection_update)
 
 
 class MailboxLink:
     """A mailbox connected over the transport"""
 
-    def __init__(self, transport: ExchangeTransport, *, default_timeout: float = DEFAULT_TIMEOUT) -> None:
+    def __init__(
+        self,
+        transport: ExchangeTransport,
+        *,
+        default_timeout: float = DEFAULT_TIMEOUT,
+        on_collection_update: Callable[[CollectionUpdate], None] | None = None,
+    ) -> None:
         """Attach to an already-established transport"""
         self._transport = transport
+        """Handler for carrying communication to and from the server"""
         self._default_timeout = default_timeout
-        # One lock guards all shared state; the Condition is its wait/notify side, used to
-        # suspend a caller until its Response is in `_responses` (or timeout/close).
-        self._lock = threading.Lock()
-        self._response_arrived = threading.Condition(self._lock)
+        """Default time to wait for server response"""
+        self.on_collection_update = on_collection_update
+        """Called with each COLLECTION_UPDATE the server sends"""
+        self._state_lock = threading.Lock()
+        """
+        Lock for access to shared state
+
+        Also used to suspend a request until a reponse is received or timed out
+        """
+        self._response_arrived = threading.Condition(self._state_lock)
+        """Condition for releasing locks on requests waiting for a response"""
         self._responses: dict[int, Response] = {}
-        self._outstanding: dict[int, int] = {}
+        """
+        Request id -> response mapping for responses received,
+        awaiting the requesting thread to read
+        """
+        self._outstanding_request_types: dict[int, int] = {}
+        """Request id -> request type mapping for pending requests"""
         self._next_request_id = 0
+        """Counter for next request id to use"""
         transport.attach(self._exchange_received, self._transport_closed)
 
     @property
@@ -162,48 +194,82 @@ class MailboxLink:
     def send_exchange(self, request: Request, *, timeout: float | None = None) -> Response | NoAnswer:
         """Send a Request and wait for its Response"""
 
-        with self._lock:
-            self._outstanding[request.request_id] = int(request.request_type)
+        with self._state_lock:
+            self._outstanding_request_types[request.request_id] = int(request.request_type)
 
         self._transport.send(request)
 
         deadline = time.monotonic() + (self._default_timeout if timeout is None else timeout)
-        with self._lock:
+        with self._state_lock:
             while request.request_id not in self._responses:
                 remaining = deadline - time.monotonic()
                 if remaining <= 0 or not self._transport.is_open:
                     # Timed out or closed, clear the wait
-                    self._outstanding.pop(request.request_id, None)
+                    self._outstanding_request_types.pop(request.request_id, None)
                     return NoAnswer()
                 # Release lock and wait for the next response to come in,
                 # or the timeout if that comes first
                 self._response_arrived.wait(remaining)
-            self._outstanding.pop(request.request_id, None)
+            self._outstanding_request_types.pop(request.request_id, None)
             return self._responses.pop(request.request_id)
 
     def _exchange_received(self, exchange: Exchange) -> None:
-        """Match Responses to outstanding Requests"""
+        """Match Responses to outstanding Requests and bubble Notifications"""
 
-        if not isinstance(exchange, Response):
-            # TODO handle the other exchange types
+        if isinstance(exchange, Notification):
+            self._notification_received(exchange)
             return
 
-        with self._lock:
-            # If it's not in outstanding, it probably already timed out
-            # so we gain nothing by reporting it — just ignore it
-            if exchange.request_id in self._outstanding:
-                self._responses[exchange.request_id] = exchange
-                self._response_arrived.notify_all()
+        if isinstance(exchange, Request):
+            # Server-initiated Requests are not part of the current spec
+            # We could optionally respond with an error
+            # But ignoring it is up to spec
+            return
+
+        if isinstance(exchange, Response):
+            with self._state_lock:
+                # If it's not in outstanding, it probably already timed out
+                # so we gain nothing by reporting it — just ignore it
+                if exchange.request_id in self._outstanding_request_types:
+                    self._responses[exchange.request_id] = exchange
+                    self._response_arrived.notify_all()
+
+    def _notification_received(self, notification: Notification) -> None:
+        """Handle an incoming Notification"""
+        if notification.event_type not in _KNOWN_NOTIFICATION_TYPES:
+            return
+
+        if notification.event_type == NotificationType.COLLECTION_UPDATE:
+            handler = self.on_collection_update
+            if handler is None:
+                return
+
+            parameters = notification.parameters
+            if (
+                len(parameters) < 3
+                or not isinstance(parameters[0], int)
+                or isinstance(parameters[0], bool)
+                or not isinstance(parameters[1], bytes)
+                or not isinstance(parameters[2], bytes)
+            ):
+                logger.warning("ignoring a malformed COLLECTION_UPDATE")
+                return
+            try:
+                handler(CollectionUpdate(parameters[0], parameters[1], parameters[2]))
+            except Exception:
+                logger.exception("the on_collection_update handler failed")
+
+            return
 
     def _transport_closed(self) -> None:
-        with self._lock:
+        with self._state_lock:
             # Notify all waiting threads that their response won't be coming
             self._response_arrived.notify_all()
 
     def _get_next_request_id(self) -> int:
         """Get an unused request id for the next request"""
 
-        with self._lock:
+        with self._state_lock:
             self._next_request_id += 1
             return self._next_request_id
 
@@ -249,7 +315,7 @@ class MailboxLink:
         return result if isinstance(result, NoAnswer) else VoidAnswer()
 
     def capability(self, *, timeout: float | None = None) -> Capabilities | NoAnswer:
-        """CAPABILITY: the server's protocol version, and whatever optional features follow it"""
+        """CAPABILITY: fetch the server's protocol version, and whatever optional features follow it"""
         result = self._make_request(RequestType.CAPABILITY, [], expected_return_count=1, timeout=timeout)
         if isinstance(result, NoAnswer):
             return result
@@ -257,6 +323,73 @@ class MailboxLink:
         if not capabilities or not isinstance(capabilities[0], int) or isinstance(capabilities[0], bool):
             raise MalformedExchangeError(message="the Capability List must lead with a protocol version")
         return Capabilities(capabilities[0], capabilities[1:])
+
+    def subscribe(
+        self,
+        collection: int,
+        *,
+        timeout: float | None = None,
+    ) -> VoidAnswer | NoAnswer:
+        """
+        SUBSCRIBE: ask for COLLECTION_UPDATE Notifications for a Collection on this link
+
+        Set `on_collection_update` to receive the notifications
+        """
+        result = self._make_request(RequestType.SUBSCRIBE, [collection], expected_return_count=0, timeout=timeout)
+        return result if isinstance(result, NoAnswer) else VoidAnswer()
+
+    def subscribe_single_mode(
+        self,
+        collection: int,
+        destination: bytes,
+        *,
+        timeout: float | None = None,
+    ) -> VoidAnswer | NoAnswer:
+        """
+        SUBSCRIBE: ask for COLLECTION_UPDATE Notifications to be sent to an LXMF delivery address
+        """
+        result = self._make_request(
+            RequestType.SUBSCRIBE, [collection, destination], expected_return_count=0, timeout=timeout
+        )
+        return result if isinstance(result, NoAnswer) else VoidAnswer()
+
+    def unsubscribe(self, collection: int, *, timeout: float | None = None) -> VoidAnswer | NoAnswer:
+        """UNSUBSCRIBE: stop this Link's COLLECTION_UPDATE Notifications for a Collection"""
+        result = self._make_request(RequestType.UNSUBSCRIBE, [collection], expected_return_count=0, timeout=timeout)
+        return result if isinstance(result, NoAnswer) else VoidAnswer()
+
+    def unsubscribe_single_mode(
+        self,
+        collection: int,
+        destination: bytes,
+        *,
+        timeout: float | None = None,
+    ) -> VoidAnswer | NoAnswer:
+        """
+        UNSUBSCRIBE: stop COLLECTION_UPDATE Notifications for a Collection being delivered to an LXMF delivery address
+        """
+        result = self._make_request(
+            RequestType.UNSUBSCRIBE, [collection, destination], expected_return_count=0, timeout=timeout
+        )
+        return result if isinstance(result, NoAnswer) else VoidAnswer()
+
+    def list_subscriptions(self, *, timeout: float | None = None) -> list[SingleModeSubscription] | NoAnswer:
+        """LIST_SUBSCRIPTIONS: List active subscriptions for Single Mode destinations"""
+        result = self._make_request(RequestType.LIST_SUBSCRIPTIONS, [], expected_return_count=1, timeout=timeout)
+        if isinstance(result, NoAnswer):
+            return result
+        listed: list[SingleModeSubscription] = []
+        for entry in _as_list(result[0]):
+            if (
+                not isinstance(entry, list)
+                or len(entry) != 2
+                or not isinstance(entry[0], int)
+                or isinstance(entry[0], bool)
+                or not isinstance(entry[1], bytes)
+            ):
+                raise MalformedExchangeError(message="Subscribers must be [Collection id, Destination] pairs")
+            listed.append(SingleModeSubscription(entry[0], entry[1]))
+        return listed
 
     def sync_collection(
         self, collection: int, last_known: bytes, *, timeout: float | None = None

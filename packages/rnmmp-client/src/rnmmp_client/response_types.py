@@ -12,7 +12,9 @@ __all__ = [
     "Capabilities",
     "CollectionDelta",
     "CollectionSync",
+    "CollectionUpdate",
     "CreatedTags",
+    "SingleModeSubscription",
     "TokenChange",
     "UpdatedStates",
     "UploadResult",
@@ -84,3 +86,23 @@ class CreatedTags(NamedTuple):
     updated_states: UpdatedStates
     tag_ids: list[int]
     """The id for each name, in the order supplied"""
+
+
+class CollectionUpdate(NamedTuple):
+    """A COLLECTION_UPDATE Notification"""
+
+    collection: int
+    """The Collection that had a State Token change"""
+    previous_state_token: bytes
+    """The State Token last published before the change that's the subject of the notification"""
+    new_state_token: bytes
+    """The State Token after the change"""
+
+
+class SingleModeSubscription(NamedTuple):
+    """An active Single-mode notification destination"""
+
+    collection: int
+    """The Collection for which changes are being notified"""
+    destination: bytes
+    """The Reticulum Destination the COLLECTION_UPDATE Notifications are sent to"""

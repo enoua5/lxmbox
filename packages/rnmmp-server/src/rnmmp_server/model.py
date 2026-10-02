@@ -1,7 +1,8 @@
 """
-The storage-agnostic mailbox model: implements mailbox state rules, over any implemention of `Store`.
+The storage-agnostic mailbox model;
+implementation of mailbox state rules, over any implemention of `Store`.
 
-Writes are serialized per mailbox with a lock so a `Store` never sees two concurrent writes.
+Writes are serialized per mailbox with a lock so a `Store` never has to deal with two concurrent writes.
 
 Everything raised here is an `RnmmpError`, ready for `Response.failure(request_id, error, request_type)`.
 """
@@ -12,8 +13,10 @@ import datetime
 import logging
 import os
 import threading
+import traceback
 import uuid
-from collections.abc import Callable, Iterable, Mapping, Sequence
+from collections.abc import Callable, Generator, Iterable, Mapping, Sequence
+from contextlib import contextmanager
 from dataclasses import dataclass
 from itertools import islice
 from typing import Any, Final
@@ -135,6 +138,8 @@ class MailboxModel:
         self._get_initial_metadata = get_initial_metadata
         self._managed_metadata_keys = frozenset(managed_metadata_keys)
         self._lock = threading.Lock()
+        self._change_listeners: list[Callable[[UpdatedStates], None]] = []
+        self._pending_changes: list[UpdatedStates] = []
         missing = {
             tag_id: name for tag_id, name in SERVER_DEFINED_TAG_NAMES.items() if tag_id not in store.get_all_tags()
         }
@@ -364,7 +369,7 @@ class MailboxModel:
         Raises:
             UnknownTagError: for a tag id not in the TAG_LIST Collection.
         """
-        with self._lock:
+        with self._write_lock():
             if self._store.get_existing_message_ids([message_id]):
                 return {}
             message = StoredMessage.from_raw(message_id, raw, lxmf=lxmf)
@@ -399,7 +404,7 @@ class MailboxModel:
             ReservedMetadataKeyError: for a client key the server manages itself.
             InvalidMetadataKeyError: for a client key that is neither an integer nor a string.
         """
-        with self._lock:
+        with self._write_lock():
             self._check_state(if_in_state)
             tag_ids = {int(tag_id) for tag_id in tags}
             self._require_tags(tag_ids)
@@ -442,7 +447,7 @@ class MailboxModel:
         Raises:
             StateMismatchError: when `if_in_state` does not match.
         """
-        with self._lock:
+        with self._write_lock():
             self._check_state(if_in_state)
             requested = list(dict.fromkeys(message_ids))
             existing = self._store.get_existing_message_ids(requested)
@@ -483,7 +488,7 @@ class MailboxModel:
             StateMismatchError: when `if_in_state` does not match.
             InvalidTagNameError: for a name that is not a non-blank string.
         """
-        with self._lock:
+        with self._write_lock():
             self._check_state(if_in_state)
             requested = list(names)
             for name in requested:
@@ -520,7 +525,7 @@ class MailboxModel:
             StateMismatchError: when `if_in_state` does not match.
             ServerDefinedTagError: for any negative tag id.
         """
-        with self._lock:
+        with self._write_lock():
             self._check_state(if_in_state)
             requested = list(dict.fromkeys(int(tag_id) for tag_id in tag_ids))
             if any(tag_id < 0 for tag_id in requested):
@@ -558,7 +563,7 @@ class MailboxModel:
             InvalidTagNameError: for a name that is not a non-blank string.
             DuplicateTagNameError: when a new name is already in use by another tag.
         """
-        with self._lock:
+        with self._write_lock():
             self._check_state(if_in_state)
             existing = self._store.get_all_tags()
             for tag_id, name in renames.items():
@@ -617,7 +622,7 @@ class MailboxModel:
             ReservedMetadataKeyError: for a key the server manages itself.
             InvalidMetadataKeyError: for a key that is neither an integer nor a string.
         """
-        with self._lock:
+        with self._write_lock():
             self._check_state(if_in_state)
             self._require_messages(list(entries))
             for entry in entries.values():
@@ -647,7 +652,7 @@ class MailboxModel:
             UnknownMessageError: for a message id not in the MAIL_LIST Collection.
             ReservedMetadataKeyError: for a key the server manages itself.
         """
-        with self._lock:
+        with self._write_lock():
             self._check_state(if_in_state)
             materialized = {message_id: list(keys) for message_id, keys in removals.items()}
             self._require_messages(list(materialized))
@@ -670,9 +675,48 @@ class MailboxModel:
                 return {}
             return self._commit(changes, {int(Collection.METADATA): step})
 
+    def add_change_listener(self, listener: Callable[[UpdatedStates], None]) -> None:
+        """
+        Register `listener` to be called with the Updated States of every write that changes a Collection.
+
+        Listeners run after the write lock is released,so a listener may read the updated model or start another write.
+        A listener may raise without impacting the other listeners or other handling.
+        """
+        self._change_listeners.append(listener)
+
+    def remove_change_listener(self, listener: Callable[[UpdatedStates], None]) -> None:
+        """
+        Remove the registration for `listener` so it's no longer called
+        """
+        self._change_listeners = [
+            existing_listener for existing_listener in self._change_listeners if existing_listener is not listener
+        ]
+
     ############################################################################
     # Internals
     ############################################################################
+
+    @contextmanager
+    def _write_lock(self) -> Generator[None]:
+        """Acquire the Store write lock, then run pending listeners"""
+        with self._lock:
+            yield
+        self._emit_change_events()
+
+    def _emit_change_events(self) -> None:
+        """Notify listeners of Updated States"""
+        with self._lock:
+            # We need to get the write lock before clearing the pending changes.
+            # Otherwise, we could maybe run into some weird race conditions skipping changes.
+            pending, self._pending_changes = self._pending_changes, []
+
+        for updated in pending:
+            for listener in self._change_listeners:
+                try:
+                    listener(updated)
+                except Exception:
+                    logger.exception("a change listener failed")
+                    logger.debug(traceback.format_exc())
 
     def _check_state(self, if_in_state: Mapping[int, bytes] | None) -> None:
         """Compare a supplied `IF_IN_STATE` map before any change, per the "Requests that mutate state" rules"""
@@ -735,7 +779,7 @@ class MailboxModel:
         adding: bool,
     ) -> UpdatedStates:
         """The shared shape of ADD_TAG and REMOVE_TAG"""
-        with self._lock:
+        with self._write_lock():
             self._check_state(if_in_state)
             materialized = {
                 message_id: {int(tag_id) for tag_id in tag_ids} for message_id, tag_ids in requested.items()
@@ -771,6 +815,7 @@ class MailboxModel:
             updated[collection] = TokenPair(previous, token)
         if updated:
             self._store.apply(changes)
+            self._pending_changes.append(dict(updated))
         return updated
 
     @staticmethod
